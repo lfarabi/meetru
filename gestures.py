@@ -153,6 +153,11 @@ class OrbMachine:
             self.blast_progress = 0.0
         return self.state
 
+    def busy(self, t: float) -> bool:
+        """Charging, blasting or in the post-blast cooldown: finger counts seen now are the hand
+        passing through while closing/opening, not deliberate finger gestures."""
+        return self.state in (CHARGING, BLAST) or t < self._cooldown_until
+
     def _released(self, openness: float | None, t: float) -> bool:
         """True once the hand went from fist to open within the release window."""
         if openness is None or openness < self.g["fist_below"]:

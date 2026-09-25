@@ -41,7 +41,7 @@ finger_sfx:
   TWO: {sound: airhorn, mode: once, volume: 1.0}
 ```
 
-File MP3 di `assets/audio/` tidak ikut di-commit (`.gitignore`); di PC lain salin ulang file-nya. Membentuk gesture yang sama saat suaranya masih berbunyi akan memutar ulang dari awal.
+File MP3 di `assets/audio/` tidak ikut di-commit (`.gitignore`); di PC lain salin ulang file-nya. Hanya satu sound effect berbunyi pada satu waktu: ganti jari (atau buka telapak / blast) langsung menghentikan suara sebelumnya. Gesture jari harus ditahan ±0.15 detik (`finger_sfx.hold`) sebelum berbunyi, dan tidak berbunyi saat orb sedang charge/blast.
 
 Preview menampilkan `fingers N thumb ±x.xx` untuk tuning `gesture.finger_straight` dan `gesture.thumb_out`.
 

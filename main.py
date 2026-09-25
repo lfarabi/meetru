@@ -70,7 +70,6 @@ def main() -> int:
     effects_on, show_skeleton = True, False
     audio = AudioEngine(cfg["audio"], cfg["finger_sfx"])
     audio_state = HIDDEN  # state last reported to audio; forced to HIDDEN while effects are off
-    audio_gesture = NO_HAND  # likewise for finger-count SFX
 
     fps, last = 0.0, time.perf_counter()
     while True:
@@ -101,9 +100,7 @@ def main() -> int:
         new_audio_state = state if effects_on else HIDDEN
         audio.update(audio_state, new_audio_state, machine.charge, machine.blast_power, machine.silent_fade)
         audio_state = new_audio_state
-        new_audio_gesture = gesture if effects_on else NO_HAND
-        audio.update_fingers(audio_gesture, new_audio_gesture, now)
-        audio_gesture = new_audio_gesture
+        audio.update_fingers(gesture if effects_on else NO_HAND, now, machine.busy(now))
 
         # `frame` is what will go to the meeting (unmirrored, no overlay); preview is a mirrored copy.
         preview = frame.copy()

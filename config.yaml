@@ -27,6 +27,9 @@ finger_sfx:
   #   built-in placeholders: finger_1 (beep), finger_2 (swoosh), finger_3 (rise+boom), finger_4 (beat loop)
   # mode: once = play when the gesture is formed (re-forming restarts it), loop = play while held
   # the downloaded MP3s are gitignored: copy them into assets/audio/ on a new machine
+  # only one sound effect plays at a time: a new one (finger or orb) cuts the previous one
+  hold: 0.15             # seconds a finger gesture must be held before its sound plays (filters
+                         # counts the hand passes through while opening/closing, e.g. into a blast)
   cooldown: 0.3          # min seconds between replays of the same 'once' sound
   ONE:   {sound: finger1-sound, mode: once, volume: 1.0}
   TWO:   {sound: fahhhhhhhhhhhhhh, mode: once, volume: 1.0}

@@ -285,64 +285,81 @@ def test_charge_loop_ramps_in_and_out_and_mute_silences():
 
 
 # built-in sounds only: the user's config points at gitignored MP3s that a fresh clone won't have
-FINGER_CFG = {"cooldown": 0.3,
+FINGER_CFG = {"cooldown": 0.3, "hold": 0.15,
               ONE: {"sound": "finger_1", "mode": "once", "volume": 1.0},
               TWO: {"sound": "finger_2", "mode": "once", "volume": 1.0},
               THREE: {"sound": "finger_3", "mode": "once", "volume": 1.0},
               FOUR: {"sound": "finger_4", "mode": "loop", "volume": 0.8}}
 
 
-def engine():
-    return AudioEngine({**A_CFG, "enabled": False}, FINGER_CFG)  # no device: drive the mixer directly
+class Fingers:
+    """Drives AudioEngine.update_fingers frame by frame (25 fps), without an audio device."""
+
+    def __init__(self):
+        self.e, self.t = AudioEngine({**A_CFG, "enabled": False}, FINGER_CFG), 0.0
+
+    def show(self, gesture, seconds, busy=False):
+        for _ in range(max(1, round(seconds / DT))):
+            self.t += DT
+            self.e.update_fingers(gesture, self.t, busy)
+        return self
+
+    def playing(self):
+        self.e.mixer.render(256)
+        return [v[0] for v in self.e.mixer._voices if not v[4]]
 
 
-def drain(e, blocks=1):
-    return max(np.abs(e.mixer.render(256)).max() for _ in range(blocks))
+def test_finger_sound_waits_for_the_hold_then_plays_once():
+    f = Fingers().show(TWO, 0.08)
+    assert f.playing() == []           # still inside the hold window
+    assert f.show(TWO, 0.12).playing() == ["finger_2"]  # held from t=0.04 to 0.20 ≥ hold
+    f.show(TWO, 1.0)
+    assert f.e.mixer._queue.qsize() == 0  # holding does not replay
 
 
-def test_finger_once_sound_plays_on_entering_the_gesture_only():
-    e = engine()
-    e.update_fingers(NO_HAND, TWO, 1.0)
-    assert drain(e) > 0
-    for _ in range(200):
-        e.mixer.render(256)  # let it finish
-    e.update_fingers(TWO, TWO, 1.1)  # holding the gesture does not replay
-    assert drain(e) == 0
+def test_passing_through_a_count_does_not_fire():
+    f = Fingers().show(ONE, 0.04).show(TWO, 0.04).show(THREE, 0.04).show(OPEN_PALM, 0.5)
+    assert f.playing() == []
 
 
-def test_finger_once_sound_is_rate_limited():
-    e = engine()
-    e.update_fingers(NO_HAND, ONE, 1.0)
-    e.update_fingers(ONE, NO_HAND, 1.05)
-    e.update_fingers(NO_HAND, ONE, 1.1)  # flicker within the cooldown
-    assert e.mixer._queue.qsize() == 1
+def test_switching_fingers_cuts_the_previous_sound():
+    f = Fingers().show(THREE, 0.3)
+    assert f.playing() == ["finger_3"]
+    f.show(ONE, 0.3)
+    assert f.playing() == ["finger_1"]  # finger_3 was faded out, not left playing underneath
+    f.e.mixer.render(256)
+    assert [v[0] for v in f.e.mixer._voices] == ["finger_1"]
+
+
+def test_no_finger_sound_while_orb_is_busy_until_it_is_not():
+    f = Fingers().show(TWO, 0.5, busy=True)
+    assert f.playing() == []
+    assert f.show(TWO, DT, busy=False).playing() == ["finger_2"]
+
+
+def test_orb_sound_cuts_a_finger_sound():
+    f = Fingers().show(THREE, 0.3)
+    f.e.update(HIDDEN, ACTIVE, 0.0, 0.0)  # open palm spawns the orb
+    assert f.playing() == ["activation"]
 
 
 def test_finger_loop_plays_while_held_and_stops_after():
-    e = engine()
-    e.update_fingers(NO_HAND, FOUR, 1.0)
-    assert drain(e, 40) > 0.1
-    e.update_fingers(FOUR, NO_HAND, 2.0)
-    drain(e, 80)
-    assert drain(e) < 1e-3
+    f = Fingers().show(FOUR, 0.5)
+    assert max(np.abs(f.e.mixer.render(256)).max() for _ in range(40)) > 0.1
+    f.show(NO_HAND, 0.1)
+    for _ in range(80):
+        f.e.mixer.render(256)
+    assert np.abs(f.e.mixer.render(256)).max() < 1e-3
 
 
-def test_restart_replaces_a_still_playing_copy():
+def test_new_one_shot_fades_out_the_previous_one():
     mx = Mixer(SOUNDS_, A_CFG)
-    mx.play("finger_3", restart=True)
+    mx.play("finger_3")
     mx.render(256)
-    mx.play("finger_3", restart=True)
+    mx.play("finger_3")
     mx.render(256)  # old copy fades out during this block
     mx.render(256)
     assert [v[0] for v in mx._voices] == ["finger_3"] and mx._voices[0][2] == 512
-
-
-def test_orb_sounds_still_overlap():
-    mx = Mixer(SOUNDS_, A_CFG)
-    mx.play("blast")
-    mx.play("blast")
-    mx.render(256)
-    assert len(mx._voices) == 2
 
 
 def test_missing_custom_sound_is_dropped_not_fatal():

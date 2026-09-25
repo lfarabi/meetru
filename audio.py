@@ -155,19 +155,22 @@ class _Loop:
 
 
 class Mixer:
-    """One-shot voices plus looping sounds with gain/pitch control. `render` runs on the audio thread."""
+    """One SFX channel (a new one-shot cuts the previous one) plus loops with gain/pitch control.
+
+    `render` runs on the audio thread.
+    """
 
     def __init__(self, sounds: dict[str, np.ndarray], cfg: dict, loops: tuple[str, ...] = ("charge_loop",)):
         self.sounds, self.cfg = sounds, cfg
         self.muted = False
         self._queue = queue.SimpleQueue()
-        self._voices = []  # [name, buffer, position, gain, fading_out]
+        self._voices = []  # [name, buffer, position, gain, fading_out]; only the newest is not fading
         # created up front so the audio thread never sees the dict change size
         self._loops = {name: _Loop(sounds[name]) for name in loops}
 
-    def play(self, name: str, gain: float = 1.0, restart: bool = False):
-        """Start a one-shot; with `restart`, any copy of it still playing is faded out first."""
-        self._queue.put((name, gain, restart))
+    def play(self, name: str, gain: float = 1.0):
+        """Start a one-shot, fading out whatever one-shot is still playing so sounds never pile up."""
+        self._queue.put((name, gain))
 
     def set_loop(self, name: str, gain: float, rate: float = 1.0):
         """Fade a loop toward `gain` (0 = stop) at playback `rate` (pitch)."""
@@ -177,10 +180,9 @@ class Mixer:
     def render(self, n: int) -> np.ndarray:
         out = np.zeros(n, np.float32)
         while not self._queue.empty():
-            name, gain, restart = self._queue.get_nowait()
-            if restart:
-                for v in self._voices:
-                    v[4] = v[4] or v[0] == name
+            name, gain = self._queue.get_nowait()
+            for v in self._voices:
+                v[4] = True
             self._voices.append([name, self.sounds[name], 0, gain * self.cfg["sfx_volume"], False])
         for v in self._voices:
             _, buf, pos, gain, fading = v
@@ -212,7 +214,7 @@ class Mixer:
 class AudioEngine:
     def __init__(self, cfg: dict, finger_cfg: dict):
         self.cfg = cfg
-        self.cooldown = finger_cfg["cooldown"]
+        self.cooldown, self.hold = finger_cfg["cooldown"], finger_cfg["hold"]
         sounds = synthesize(cfg["sample_rate"])
         wanted = set(ORB_SOUNDS) | {finger_cfg[g]["sound"] for g in FINGER_GESTURES if g in finger_cfg}
         for name in wanted:
@@ -235,6 +237,7 @@ class AudioEngine:
         loops = ("charge_loop",) + tuple({s["sound"] for s in self.fingers.values() if s["mode"] == "loop"})
         self.mixer = Mixer(sounds, cfg, loops)
         self._last_played = {}
+        self._gesture, self._since, self._fired = None, 0.0, False  # finger gesture being held
         self._stream = None
         if not cfg["enabled"]:
             return
@@ -267,15 +270,25 @@ class AudioEngine:
         gain = (0.5 + 0.5 * charge) * self.cfg["charge_volume"] if state == CHARGING else 0.0
         self.mixer.set_loop("charge_loop", gain, 1.0 + 0.8 * charge)  # pitch rises with charge
 
-    def update_fingers(self, prev: str, gesture: str, t: float):
-        """Finger-count SFX: 'once' plays on entering the gesture (rate-limited), 'loop' plays while held."""
+    def update_fingers(self, gesture: str, t: float, orb_busy: bool = False):
+        """Finger-count SFX; call once per frame.
+
+        A finger gesture must be held for `hold` seconds first, so the counts the hand passes through
+        while opening or closing (e.g. releasing a fist into a blast) don't fire. Nothing fires while
+        the orb is charging or blasting. 'once' plays when the hold is reached (rate-limited per
+        gesture); 'loop' plays for as long as the gesture is held.
+        """
+        if gesture != self._gesture:
+            self._gesture, self._since, self._fired = gesture, t, False
+        settled = t - self._since >= self.hold and not orb_busy
         for g, spec in self.fingers.items():
             if spec["mode"] == "loop":
-                self.mixer.set_loop(spec["sound"], spec["volume"] if gesture == g else 0.0)
+                self.mixer.set_loop(spec["sound"], spec["volume"] if gesture == g and settled else 0.0)
         spec = self.fingers.get(gesture)
-        if gesture != prev and spec and spec["mode"] == "once":
+        if spec and spec["mode"] == "once" and settled and not self._fired:
+            self._fired = True
             if t - self._last_played.get(gesture, float("-inf")) >= self.cooldown:
-                self.mixer.play(spec["sound"], spec["volume"], restart=True)
+                self.mixer.play(spec["sound"], spec["volume"])
                 self._last_played[gesture] = t
 
     def close(self):
