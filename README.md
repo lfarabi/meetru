@@ -16,6 +16,7 @@ Klik dua kali `run.bat`, atau `.venv\Scripts\python main.py`.
 |---|---|
 | `Space` | efek on/off |
 | `M` | mute SFX |
+| `B` | rekam ruangan kosong untuk jutsu menghilang (hitung mundur 5 detik, keluar dari frame) |
 | `D` | skeleton tangan (debug) |
 | `Q` / `Esc` | keluar |
 
@@ -47,6 +48,13 @@ Preview menampilkan `fingers N thumb ±x.xx` untuk tuning `gesture.finger_straig
 
 ### Orb video
 Orb memakai `assets/video/orb.mp4` (`orb.video` di `config.yaml`): klip berlatar hitam dengan orb di tengah, ditempel di telapak dengan blending screen. Awal klip (orb terbentuk) diputar saat orb muncul, sisanya di-loop; ukuran bola dideteksi otomatis (`orb.video_scale` untuk menyesuaikan). Ganti klipnya cukup dengan menaruh video lain dan mengubah `orb.video`. Kalau file tidak ada, orb prosedural yang dipakai.
+
+### Jutsu menghilang (seal)
+1. Sekali saja (dan setiap kali posisi kamera/cahaya berubah): tekan `B`, keluar dari frame dalam 5 detik, tunggu tulisan *Empty room captured*. Foto ruangan kosong disimpan di `assets/background.png` (tidak di-commit).
+2. Buat segel: dua jari (telunjuk + tengah) di kedua tangan, satu tegak dan satu mendatar, disilangkan; tahan ±0,3 detik → asap `assets/video/smoke.mp4` menyembur di tempat segel dan Anda menghilang (tinggal ruangan kosong).
+3. Segel lagi → asap lagi → Anda muncul kembali.
+
+Asap green screen di-key otomatis; bagian terpadatnya diletakkan di titik segel (`vanish.smoke_height` untuk ukurannya). Orb tetap bisa dipakai saat tak terlihat. SFX jari dibisukan saat dua tangan terlihat supaya segel tidak memicu suara 2 jari.
 
 ## Pakai di Google Meet / Zoom
 Sekali saja: pasang **VB-CABLE** (https://vb-audio.com/Cable/ → unduh zip → klik kanan `VBCABLE_Setup_x64.exe` → Run as administrator → Install Driver → restart). Setelah itu pastikan output default Windows tetap speaker/headphone Anda, bukan "CABLE Input".

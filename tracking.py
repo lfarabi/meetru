@@ -75,23 +75,33 @@ class HandTracker:
         self._landmarker = vision.HandLandmarker.create_from_options(vision.HandLandmarkerOptions(
             base_options=BaseOptions(model_asset_path=str(model)),
             running_mode=vision.RunningMode.VIDEO,
-            num_hands=1,
+            num_hands=cfg["max_hands"],
             min_hand_detection_confidence=cfg["detection_confidence"],
             min_hand_presence_confidence=cfg["detection_confidence"],
             min_tracking_confidence=cfg["tracking_confidence"],
         ))
         self._last_ts = -1
 
-    def detect(self, frame_bgr: np.ndarray, t_ms: int) -> Hand | None:
+    def detect(self, frame_bgr: np.ndarray, t_ms: int) -> list[Hand]:
         t_ms = max(t_ms, self._last_ts + 1)  # MediaPipe requires strictly increasing timestamps
         self._last_ts = t_ms
         rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         result = self._landmarker.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb), t_ms)
-        if not result.hand_landmarks:
-            return None
         h, w = frame_bgr.shape[:2]
-        return Hand(np.array([(p.x * w, p.y * h, p.z * w) for p in result.hand_landmarks[0]], dtype=np.float32),
-                    np.array([(p.x, p.y, p.z) for p in result.hand_world_landmarks[0]], dtype=np.float32))
+        return [Hand(np.array([(p.x * w, p.y * h, p.z * w) for p in lm], dtype=np.float32),
+                     np.array([(p.x, p.y, p.z) for p in wl], dtype=np.float32))
+                for lm, wl in zip(result.hand_landmarks, result.hand_world_landmarks)]
 
     def close(self):
         self._landmarker.close()
+
+
+def pick_primary(hands: list[Hand], prev_wrist: np.ndarray | None) -> Hand | None:
+    """The hand that drives the orb and finger SFX: the one continuing from last frame's wrist,
+    else the largest. MediaPipe's list order isn't stable, so without this the orb would jump
+    between hands."""
+    if not hands:
+        return None
+    if prev_wrist is None:
+        return max(hands, key=lambda h: palm_size(h.lm))
+    return min(hands, key=lambda h: float(np.linalg.norm(h.lm[WRIST, :2] - prev_wrist)))
