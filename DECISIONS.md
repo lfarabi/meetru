@@ -22,7 +22,7 @@ Hasil sesi grilling 2026-09-25 atas `hand-vfx-camera-project-handoff.md`. Jika b
 - Telapak ±menghadap kamera (|normal z| > `center_lock` 0.75) → orb dikunci di tengah telapak, agar kemiringan kecil / noise kedalaman tidak menggeser orb.
 - Punggung tangan ke kamera (normal z > 0.65) → orb di balik tangan: siluet tangan dari landmark menutupi orb (oklusi, ±1.5 ms). Telapak ke atas yang sedikit condong tidak memicu oklusi.
 - **Sisi telapak ditentukan dari lengkung jari**, bukan label kiri/kanan MediaPipe: diuji pada screenshot user, label handedness MediaPipe Tasks tertukar pada pose miring (telapak ke atas), sedangkan sisi lengkung jari/jempol benar di semua kasus (selisih 7–31 mm). Tangan hampir datar mempertahankan sisi sebelumnya.
-- **Blast = lepas kepalan** (bukan dorongan/z-depth): charge ≥0.5 s lalu buka <250 ms → ledakan, kekuatan ∝ lama charge, cooldown 1 s. Charge <0.5 s → kembali ACTIVE.
+- **Charge = menahan orb dengan telapak terbuka menjauhi kamera** (ke atas/samping), **blast = mengarahkan telapak ke kamera** (permintaan user; menggantikan charge-dengan-kepalan dan lepas-kepalan). `facing` = −normal_z: telapak ke kamera ≈ +0.93, memegang telapak ke atas ≈ −0.30…−0.64 (diukur di screenshot user). > `blast.aim` 0.7 → lempar (blast kalau sudah charge ≥ 0.5 s, kalau belum orb tetap); < `blast.hold_below` 0.5 → charge; di antaranya status dipertahankan. Saat charging, FOUR dianggap tangan terbuka (jempol sering terbaca terlipat saat tangan berputar). Kepalan kini memadamkan orb (dengan suara power-down). Cooldown 1 s setelah blast.
 - Semua angka di `config.yaml`.
 
 ## Output
@@ -38,7 +38,7 @@ Hasil sesi grilling 2026-09-25 atas `hand-vfx-camera-project-handoff.md`. Jika b
 
 ## Kontrol (jendela preview)
 - `Space` efek on/off · `D` skeleton debug · `M` mute SFX · `Q`/`Esc` keluar.
-- Threshold gesture di-tuning dari pengukuran user: fist ≈ 0.32, open ≈ 1.10 → `fist_below 0.55`, `open_above 0.8`.
+- Threshold gesture di-tuning dari pengukuran user: fist ≈ 0.32, open ≈ 1.10 → `fist_below 0.55`.
 
 ## Struktur kode
 Ramping: `main.py`, `tracking.py`, `gestures.py`, `orb.py`, `audio.py`, `config.yaml`, `tests/`. Pecah file hanya saat efek kedua muncul. Repo: github.com/lfarabi/meetcam (private, GPL-3.0), branch `main`.

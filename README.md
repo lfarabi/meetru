@@ -19,7 +19,7 @@ Klik dua kali `run.bat`, atau `.venv\Scripts\python main.py`.
 | `D` | skeleton tangan (debug) |
 | `Q` / `Esc` | keluar |
 
-Gesture: buka telapak → orb muncul · kepal → charging (maks 3 detik, suara makin tinggi) · kepal ≥0.5 detik lalu buka cepat → blast · tangan keluar frame → orb padam. Orb mengikuti arah hadap telapak (3D): telapak ke atas → orb di atas tangan; punggung tangan ke kamera → orb tertutup tangan. Preview menampilkan `palm CAMERA/UP/DOWN/LEFT/RIGHT/AWAY`.
+Gesture: buka telapak → orb muncul · tahan orb dengan telapak ke atas/samping → charging (maks 3 detik, suara makin tinggi) · arahkan telapak ke kamera (setelah charge ≥0.5 detik) → blast · kepal atau tangan keluar frame → orb padam. Orb mengikuti arah hadap telapak (3D): telapak ke atas → orb di atas tangan; punggung tangan ke kamera → orb tertutup tangan. Preview menampilkan `palm CAMERA/UP/DOWN/LEFT/RIGHT/AWAY`.
 
 Kamera dipilih lewat `camera.device_id` di `config.yaml`. Webcam hanya bisa dipakai satu aplikasi: tutup NVIDIA Broadcast / Meet / Zoom yang memegang kamera fisik.
 

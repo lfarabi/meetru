@@ -102,10 +102,11 @@ def main() -> int:
         lm = smoother.update(hand.lm if hand else None)
         world = world_smoother.update(hand.world if hand else None)
         gesture = classifier.update(lm, world)
-        state = machine.update(gesture, classifier.openness if lm is not None else None, now)
         occlusion = 0.0
         if lm is not None:
             normal, palm_side = palm_normal(world, palm_side)
+        state = machine.update(gesture, -float(normal[2]) if lm is not None else None, now)  # palm-to-camera
+        if lm is not None:
             anchor = orb_anchor(lm, normal, cfg["orb"])
             o = cfg["orb"]
             occlusion = float(np.clip((normal[2] - o["occlusion_start"]) / (o["occlusion_full"] - o["occlusion_start"]), 0, 1))

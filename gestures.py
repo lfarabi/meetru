@@ -89,28 +89,31 @@ HIDDEN, ACTIVE, CHARGING, BLAST, FADING = "HIDDEN", "ACTIVE", "CHARGING", "BLAST
 class OrbMachine:
     """Explicit orb state machine.
 
-    Driven by the debounced gesture, plus raw openness so a fast fist→open release can fire
-    the blast without waiting for debounce.
+    Open palm summons the orb. Holding it with the palm turned away from the camera (up, sideways)
+    charges it; turning the palm to face the camera throws it: a blast if it was held for at least
+    `charge.min_time`, otherwise it just stays. `facing` is how squarely the palm faces the camera
+    (1 = straight at it, negative = turned away); two thresholds with a gap between keep the state
+    from flickering while the hand rotates. A fist extinguishes the orb.
     """
 
     def __init__(self, cfg: dict):
-        self.g, self.o, self.c, self.b = cfg["gesture"], cfg["orb"], cfg["charge"], cfg["blast"]
+        self.o, self.c, self.b = cfg["orb"], cfg["charge"], cfg["blast"]
         self.state = HIDDEN
         self.silent_fade = False  # faded because a finger-count gesture took over (no power-down SFX)
         self.presence = 0.0      # 0..1 fade in/out
         self.charge = 0.0        # 0..1 charge level
-        self.blast_power = 0.0   # charge level at release
+        self.blast_power = 0.0   # charge level when thrown
         self.blast_progress = 0.0
         self._t = None
         self._charge_start = self._blast_start = 0.0
         self._cooldown_until = float("-inf")
-        self._left_fist_at = None
-        self._open_frames = 0
 
-    def update(self, gesture: str, openness: float | None, t: float) -> str:
+    def update(self, gesture: str, facing: float | None, t: float) -> str:
         dt = 0.0 if self._t is None else t - self._t
         self._t = t
         s = self.state
+        aimed = facing is not None and facing > self.b["aim"]
+        holding = facing is not None and facing < self.b["hold_below"]
 
         if s == HIDDEN:
             if gesture == OPEN_PALM and t >= self._cooldown_until:
@@ -120,23 +123,21 @@ class OrbMachine:
                 self.state = ACTIVE
             elif self.presence <= 0:
                 self.state = HIDDEN
-        elif s == ACTIVE:
-            if gesture == NO_HAND or gesture in FINGER_GESTURES:
-                self.state, self.silent_fade = FADING, gesture != NO_HAND
-            elif gesture == FIST:
+        elif s in (ACTIVE, CHARGING):
+            # while charging, FOUR is still the open hand: the thumb often reads as folded mid-turn
+            open_hand = gesture == OPEN_PALM or (s == CHARGING and gesture == FOUR)
+            if not open_hand:
+                self.state, self.silent_fade = FADING, gesture in FINGER_GESTURES
+            elif s == ACTIVE and holding:
                 self.state, self._charge_start = CHARGING, t
-                self._left_fist_at, self._open_frames = None, 0
-        elif s == CHARGING:
-            held = t - self._charge_start
-            self.charge = min(held / self.c["max_time"], 1.0)
-            if gesture == NO_HAND:
-                self.state, self.silent_fade = FADING, False
-            elif self._released(openness, t) and held >= self.c["min_time"]:
-                self.state, self._blast_start, self.blast_power = BLAST, t, self.charge
-            elif gesture == OPEN_PALM:
-                self.state = ACTIVE
-            elif gesture in FINGER_GESTURES:
-                self.state, self.silent_fade = FADING, True
+            elif s == CHARGING:
+                held = t - self._charge_start
+                self.charge = min(held / self.c["max_time"], 1.0)
+                if aimed:
+                    if held >= self.c["min_time"]:
+                        self.state, self._blast_start, self.blast_power = BLAST, t, self.charge
+                    else:
+                        self.state = ACTIVE
         elif s == BLAST:
             self.blast_progress = (t - self._blast_start) / self.b["duration"]
             if self.blast_progress >= 1:
@@ -155,16 +156,5 @@ class OrbMachine:
 
     def busy(self, t: float) -> bool:
         """Charging, blasting or in the post-blast cooldown: finger counts seen now are the hand
-        passing through while closing/opening, not deliberate finger gestures."""
+        mid-turn, not deliberate finger gestures."""
         return self.state in (CHARGING, BLAST) or t < self._cooldown_until
-
-    def _released(self, openness: float | None, t: float) -> bool:
-        """True once the hand went from fist to open within the release window."""
-        if openness is None or openness < self.g["fist_below"]:
-            self._left_fist_at, self._open_frames = None, 0
-            return False
-        if self._left_fist_at is None:
-            self._left_fist_at = t
-        self._open_frames = self._open_frames + 1 if openness > self.g["open_above"] else 0
-        return (self._open_frames >= self.b["confirm_frames"]
-                and t - self._left_fist_at <= self.b["release_window"])
