@@ -55,7 +55,7 @@ Sekali saja: pasang **VB-CABLE** (https://vb-audio.com/Cable/ → unduh zip → 
    - **Audio** → Microphone: **CABLE Output (VB-Audio Virtual Cable)**; kalau SFX terpotong/hilang, matikan *Noise cancellation*
 4. Pakai **headphone**: SFX juga diputar ke speaker Anda, dan kalau lewat speaker, mic akan menangkapnya lagi (gema).
 
-Suara Anda tetap lewat (mic webcam dicampur di aplikasi; ganti lewat `meeting_audio.mic_device`); `M` hanya membisukan SFX, bukan suara Anda. Untuk mute suara, pakai tombol mute di Meet.
+Suara Anda tetap lewat (mic USB Audio CODEC dicampur di aplikasi; ganti lewat `meeting_audio.mic_device`, mis. `FHD Camera` untuk mic webcam); `M` hanya membisukan SFX, bukan suara Anda. Untuk mute suara, pakai tombol mute di Meet.
 
 Meet me-mirror tampilan diri Anda sendiri; peserta lain melihat versi tidak ter-mirror (tulisan terbaca normal). Overlay debug (FPS, gesture) hanya ada di preview, tidak terkirim. Aplikasi OBS Studio tidak perlu dibuka; kalau OBS terbuka dengan "Start Virtual Camera" aktif, matikan dulu (preview akan menulis `VCAM OFF`).
 

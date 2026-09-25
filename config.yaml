@@ -84,8 +84,9 @@ meeting_audio:
   # In Meet/Zoom choose the microphone "CABLE Output (VB-Audio Virtual Cable)".
   # Without VB-CABLE installed the app still runs; only you hear the SFX (MEET AUDIO OFF).
   enabled: true
-  mic_device: FHD Camera        # your real microphone (part of its name). Measured: the webcam mic
-                                # carries the voice; the USB Audio CODEC input is only hiss/hum.
+  mic_device: USB Audio CODEC   # your real microphone (part of its name): the good mic, via the USB
+                                # mixer (PCM2902). If meetings hear only hiss, check the mixer (gain,
+                                # main mix, +48V) or fall back to "FHD Camera" (webcam mic).
                                 # Don't use null (Windows default): if that is ever set to CABLE Output
                                 # the app would feed its own output back in.
   output_device: CABLE Input    # VB-CABLE's playback side
