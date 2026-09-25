@@ -172,6 +172,10 @@ class Mixer:
         """Start a one-shot, fading out whatever one-shot is still playing so sounds never pile up."""
         self._queue.put((name, gain))
 
+    def stop(self, name: str):
+        """Fade out a one-shot if it is still playing."""
+        self._queue.put((name, None))
+
     def set_loop(self, name: str, gain: float, rate: float = 1.0):
         """Fade a loop toward `gain` (0 = stop) at playback `rate` (pitch)."""
         loop = self._loops[name]
@@ -182,8 +186,9 @@ class Mixer:
         while not self._queue.empty():
             name, gain = self._queue.get_nowait()
             for v in self._voices:
-                v[4] = True
-            self._voices.append([name, self.sounds[name], 0, gain * self.cfg["sfx_volume"], False])
+                v[4] = v[4] or gain is not None or v[0] == name  # play: fade everything; stop: just `name`
+            if gain is not None:
+                self._voices.append([name, self.sounds[name], 0, gain * self.cfg["sfx_volume"], False])
         for v in self._voices:
             _, buf, pos, gain, fading = v
             chunk = buf[pos:pos + n] * gain
@@ -275,10 +280,14 @@ class AudioEngine:
 
         A finger gesture must be held for `hold` seconds first, so the counts the hand passes through
         while opening or closing (e.g. releasing a fist into a blast) don't fire. Nothing fires while
-        the orb is charging or blasting. 'once' plays when the hold is reached (rate-limited per
-        gesture); 'loop' plays for as long as the gesture is held.
+        the orb is charging or blasting. 'once' plays through once when the hold is reached
+        (rate-limited per gesture) and stops early if the gesture is let go; 'loop' repeats for as
+        long as the gesture is held.
         """
         if gesture != self._gesture:
+            released = self.fingers.get(self._gesture)
+            if self._fired and released and released["mode"] == "once":
+                self.mixer.stop(released["sound"])  # gesture let go: its sound stops with it
             self._gesture, self._since, self._fired = gesture, t, False
         settled = t - self._since >= self.hold and not orb_busy
         for g, spec in self.fingers.items():

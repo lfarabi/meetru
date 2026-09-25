@@ -331,6 +331,23 @@ def test_switching_fingers_cuts_the_previous_sound():
     assert [v[0] for v in f.e.mixer._voices] == ["finger_1"]
 
 
+def test_letting_go_of_the_gesture_stops_its_sound():
+    for after in (NO_HAND, FIST):
+        f = Fingers().show(THREE, 0.3)
+        assert f.playing() == ["finger_3"]
+        f.show(after, DT)
+        assert f.playing() == []  # fading out this block
+        assert f.e.mixer._voices == []
+
+
+def test_stop_only_touches_the_named_sound():
+    mx = Mixer(SOUNDS_, A_CFG)
+    mx.play("blast")
+    mx.stop("finger_3")
+    mx.render(256)
+    assert [v[0] for v in mx._voices if not v[4]] == ["blast"]
+
+
 def test_no_finger_sound_while_orb_is_busy_until_it_is_not():
     f = Fingers().show(TWO, 0.5, busy=True)
     assert f.playing() == []

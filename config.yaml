@@ -25,16 +25,17 @@ gesture:
 finger_sfx:
   # sound = file name in assets/audio/ without extension (.mp3 .wav .ogg .flac)
   #   built-in placeholders: finger_1 (beep), finger_2 (swoosh), finger_3 (rise+boom), finger_4 (beat loop)
-  # mode: once = play when the gesture is formed (re-forming restarts it), loop = play while held
+  # mode: once = play once when the gesture is formed, stopping early if you let go of it
+  #       loop = repeat for as long as the gesture is held
   # the downloaded MP3s are gitignored: copy them into assets/audio/ on a new machine
   # only one sound effect plays at a time: a new one (finger or orb) cuts the previous one
   hold: 0.15             # seconds a finger gesture must be held before its sound plays (filters
                          # counts the hand passes through while opening/closing, e.g. into a blast)
   cooldown: 0.3          # min seconds between replays of the same 'once' sound
   ONE:   {sound: finger1-sound, mode: once, volume: 1.0}
-  TWO:   {sound: fahhhhhhhhhhhhhh, mode: once, volume: 1.0}
+  TWO:   {sound: finger2-sound, mode: once, volume: 1.0}
   THREE: {sound: akh, mode: once, volume: 1.0}
-  FOUR:  {sound: extra-sound, mode: once, volume: 1.0}
+  FOUR:  {sound: guru-hentikan-guru, mode: once, volume: 1.0}
 
 orb:
   color_bgr: [255, 115, 20]   # electric blue body; streaks, swooshes and core glow toward white
@@ -71,5 +72,5 @@ audio:
   master_volume: 0.8
   sfx_volume: 1.0
   charge_volume: 0.6
-  # drop activation.wav / charge_loop.wav / blast.wav / power_down.wav (16-bit PCM) into
-  # assets/audio/ to replace the synthesized placeholders
+  # put activation / charge_loop / blast / power_down (.mp3 .wav .ogg .flac) into
+  # assets/audio/ to replace the synthesized orb placeholders
