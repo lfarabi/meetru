@@ -6,7 +6,8 @@ import time
 import cv2
 import yaml
 
-from gestures import FIST, OPEN_PALM, GestureClassifier, OrbMachine
+from audio import AudioEngine
+from gestures import FIST, HIDDEN, OPEN_PALM, GestureClassifier, OrbMachine
 from orb import EnergyOrb, orb_anchor
 from tracking import CONNECTIONS, HandTracker, Smoother
 
@@ -57,6 +58,8 @@ def main() -> int:
     orb = EnergyOrb(cfg)
     anchor = None  # last known orb position/radius, kept so the orb can fade out where the hand was
     effects_on, show_skeleton = True, False
+    audio = AudioEngine(cfg["audio"])
+    audio_state = HIDDEN  # state last reported to audio; forced to HIDDEN while effects are off
 
     fps, last = 0.0, time.perf_counter()
     while True:
@@ -76,6 +79,9 @@ def main() -> int:
             anchor = orb_anchor(lm, cfg["orb"])
         if effects_on and anchor is not None:
             orb.draw(frame, machine, *anchor, now)
+        new_audio_state = state if effects_on else HIDDEN
+        audio.update(audio_state, new_audio_state, machine.charge, machine.blast_power)
+        audio_state = new_audio_state
 
         # `frame` is what will go to the meeting (unmirrored, no overlay); preview is a mirrored copy.
         preview = frame.copy()
@@ -86,11 +92,13 @@ def main() -> int:
         cv2.putText(preview, f"FPS {fps:4.1f}", (16, 36), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
         cv2.putText(preview, gesture, (16, 76), cv2.FONT_HERSHEY_SIMPLEX, 1.1, color, 3, cv2.LINE_AA)
         status = f"{state}  charge {machine.charge:.0%}" if effects_on else "EFFECTS OFF"
+        if audio.mixer.muted:
+            status += "  [SFX MUTED]"
         cv2.putText(preview, status, (16, 112), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
         if lm is not None:
             cv2.putText(preview, f"openness {classifier.openness:.2f}", (16, 142),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-        cv2.imshow("Hand VFX Camera (Space effects, D skeleton, Q quit)", preview)
+        cv2.imshow("Hand VFX Camera (Space effects, M mute, D skeleton, Q quit)", preview)
 
         key = cv2.waitKey(1) & 0xFF
         if key in (ord("q"), 27):
@@ -99,7 +107,10 @@ def main() -> int:
             effects_on = not effects_on
         if key == ord("d"):
             show_skeleton = not show_skeleton
+        if key == ord("m"):
+            audio.mixer.muted = not audio.mixer.muted
 
+    audio.close()
     tracker.close()
     cap.release()
     cv2.destroyAllWindows()

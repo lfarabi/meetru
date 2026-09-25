@@ -13,14 +13,16 @@ Hasil sesi grilling 2026-09-25 atas `hand-vfx-camera-project-handoff.md`. Jika b
 - Gesture: NO_HAND / OPEN_PALM / FIST. Jarak fingertip dinormalisasi dengan ukuran telapak (wrist→middle MCP), ada hysteresis + debounce agar tidak flicker.
 
 ## Efek
-- Energy Orb biru-cyan, inti putih: spawn, mengikuti tangan, charge hingga 3 detik.
+- Energy Orb gaya Orb (sesuai gambar referensi user, dibuat prosedural karena PNG referensi berlatar checkerboard): bola biru pekat semi-solid, garis cahaya kusut berputar, inti putih, 5 sabetan sabit biru di orbit miring, percikan. Charge hingga 3 detik.
+- Posisi: **tengah telapak** = titik tengah antara wrist dan rata-rata 4 MCP (`orb.palm_position: 0.5`). Rata-rata 5 titik dari handoff terlalu condong ke buku jari.
 - **Blast = lepas kepalan** (bukan dorongan/z-depth): charge ≥0.5 s lalu buka <250 ms → ledakan, kekuatan ∝ lama charge, cooldown 1 s. Charge <0.5 s → kembali ACTIVE.
 - Semua angka di `config.yaml`.
 
 ## Output
 - Video: `pyvirtualcam` langsung ke driver OBS Virtual Camera (aplikasi OBS tidak perlu dibuka).
 - Video ke meeting **tidak** di-mirror; preview lokal di-mirror + overlay debug (FPS, gesture, state). Overlay tidak masuk ke meeting.
-- Audio: SFX placeholder disintesis NumPy. Mixer `sounddevice`: mic **USB Audio CODEC** + SFX → VB-CABLE Input → mic "CABLE Output" di Meet. SFX juga dimonitor ke headphone (bisa dimatikan).
+- Audio: SFX placeholder disintesis NumPy (bisa diganti WAV 16-bit di `assets/audio/`). SFX lokal dimajukan ke Checkpoint 2 atas permintaan user: WASAPI (±22 ms; MME ±96 ms) ke output default Windows (saat ini Speakers Realtek), bisa diganti via `audio.output_device`.
+- Checkpoint 4: mixer `sounddevice` mic **USB Audio CODEC** + SFX → VB-CABLE Input → mic "CABLE Output" di Meet.
 - VB-CABLE diinstal manual oleh user saat Checkpoint 4. Jika Meet memotong SFX, matikan noise cancellation Meet.
 
 ## Kontrol (jendela preview)

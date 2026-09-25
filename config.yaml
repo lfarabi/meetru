@@ -19,9 +19,10 @@ gesture:
   lost_frames: 5         # frames without a hand before reporting NO_HAND
 
 orb:
-  color_bgr: [255, 190, 40]   # cyan-blue; core is always white-hot
-  radius: 0.45           # orb radius in palm sizes
-  offset: 0.9            # distance from palm center toward the fingers, in palm sizes
+  color_bgr: [255, 115, 20]   # electric blue body; streaks, swooshes and core glow toward white
+  radius: 0.6            # sphere radius in palm sizes (wrist→middle MCP)
+  palm_position: 0.5     # 0 = wrist, 1 = knuckle line; 0.5 = middle of the palm
+  opacity: 0.8           # how much the sphere body covers the hand behind it
   glow: 1.0
   particles: 40
   spawn_time: 0.25       # seconds to fade in
@@ -37,3 +38,15 @@ blast:
   confirm_frames: 2      # frames above open_above needed to fire (filters single-frame glitches)
   duration: 0.6
   cooldown: 1.0          # seconds after a blast before a new orb can spawn
+
+audio:
+  enabled: true
+  host_api: Windows WASAPI   # low latency; "MME" is the slow but always-works fallback
+  output_device: null    # null = Windows default output; or part of a device name, e.g. "USB Audio CODEC"
+  sample_rate: 48000
+  blocksize: 256         # samples per audio callback (~5 ms)
+  master_volume: 0.8
+  sfx_volume: 1.0
+  charge_volume: 0.6
+  # drop activation.wav / charge_loop.wav / blast.wav / power_down.wav (16-bit PCM) into
+  # assets/audio/ to replace the synthesized placeholders

@@ -161,3 +161,51 @@ def test_hand_returning_during_fade_revives_orb():
     d.run(OPEN_PALM, OPEN_O, 0.5)
     d.run(NO_HAND, None, 0.1)
     assert d.run(OPEN_PALM, OPEN_O, DT) == ACTIVE
+
+
+# --- audio mixer --------------------------------------------------------------
+from audio import Mixer, synthesize  # noqa: E402
+
+SR = 48000
+A_CFG = {**M_CFG["audio"], "sample_rate": SR}
+SOUNDS_ = synthesize(SR)
+
+
+def test_synthesized_sounds_are_clean():
+    for name, x in SOUNDS_.items():
+        assert x.dtype == np.float32 and np.isfinite(x).all() and 0.3 < np.abs(x).max() <= 0.91, name
+
+
+def test_charge_loop_is_seamless():
+    loop = SOUNDS_["charge_loop"]
+    assert abs(loop[-1] - loop[0]) < 0.05
+
+
+def test_mixer_is_silent_until_something_plays():
+    mx = Mixer(SOUNDS_, A_CFG)
+    assert not mx.render(256).any()
+    mx.play("blast")
+    assert np.abs(mx.render(256)).max() > 0
+
+
+def test_one_shot_voice_is_released_when_finished():
+    mx = Mixer(SOUNDS_, A_CFG)
+    mx.play("activation")
+    for _ in range(len(SOUNDS_["activation"]) // 256 + 2):
+        mx.render(256)
+    assert not mx._voices
+
+
+def test_charge_loop_ramps_in_and_out_and_mute_silences():
+    mx = Mixer(SOUNDS_, A_CFG)
+    mx.loop_gain_target = 1.0
+    first = np.abs(mx.render(256)).max()
+    for _ in range(40):
+        loud = np.abs(mx.render(256)).max()
+    assert first < loud  # ramped in, no click
+    mx.muted = True
+    assert not mx.render(256).any()
+    mx.muted, mx.loop_gain_target = False, 0.0
+    for _ in range(60):
+        mx.render(256)
+    assert np.abs(mx.render(256)).max() < 1e-3
