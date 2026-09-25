@@ -81,6 +81,8 @@ vanish:
   capture_delay: 5       # seconds to leave the frame after pressing B
   seal_hold: 0.3         # seconds the seal must be held
   smoke_height: 1.8      # smoke size relative to the frame height (its densest puff lands on the seal)
+  sound: seal_sound   # assets/audio/<name>.mp3, played every time the seal fires; nothing else
+  volume: 1.0                   # sounds (orb, blast, finger SFX, loops) until it has finished
 
 audio:
   enabled: true

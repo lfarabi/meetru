@@ -144,14 +144,16 @@ class Vanish:
             self._say("Empty room captured", t)
             log.info("Background plate saved to %s", self.cfg["background"])
 
-    def update(self, seal: np.ndarray | None, t: float):
-        """Call once per frame with seal_point(); holding the seal toggles you out/in once."""
+    def update(self, seal: np.ndarray | None, t: float) -> bool:
+        """Call once per frame with seal_point(); holding the seal toggles you out/in once.
+        Returns True on the frame the seal fires (for its sound)."""
+        fired = False
         if seal is None:
             self._since, self._armed = None, True
         else:
             self._since = t if self._since is None else self._since
             if self._armed and not self.busy and t - self._since >= self.cfg["seal_hold"]:
-                self._armed = False  # let go of the seal before it can fire again
+                self._armed, fired = False, True  # let go of the seal before it can fire again
                 self._start, self._at, self._from = t, seal, self.mix
                 if self.plate is None:
                     self._to = 0.0
@@ -169,6 +171,7 @@ class Vanish:
             self.mix = self._from + (self._to - self._from) * w
             if done:
                 self.mix, self._start = self._to, None
+        return fired
 
     def apply_plate(self, frame: np.ndarray):
         if self.plate is not None and self.mix > 0:

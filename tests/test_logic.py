@@ -663,3 +663,43 @@ def test_primary_hand_follows_the_same_hand_not_the_list_order():
     assert pick_primary([small, big], None) is big                          # nothing tracked yet: largest
     assert pick_primary([big, small], small.lm[0, :2] + 3) is small         # then whichever continues
     assert pick_primary([], None) is None
+
+
+# --- jutsu sound ---------------------------------------------------------------------
+def test_exclusive_sound_cannot_be_interrupted_and_silences_loops():
+    mx = Mixer(SOUNDS_, A_CFG)
+    mx.set_loop("charge_loop", 1.0)
+    for _ in range(20):
+        mx.render(256)                       # charge hum is running
+    mx.play("finger_1", exclusive=True)      # the jutsu sound (a short beep stands in for it)
+    mx.render(256)
+    mx.play("blast")                         # orb / finger sounds while it plays...
+    mx.play("finger_2")
+    mx.render(256)
+    assert [v[0] for v in mx._voices if not v[4]] == ["finger_1"]   # ...are dropped
+    for _ in range(len(SOUNDS_["finger_1"]) // 256 + 2):
+        out = mx.render(256)
+    assert not mx._voices
+    first_loop_block = np.abs(mx.render(256)).max()
+    assert first_loop_block < 0.2                                    # hum returns ramping up, no click
+    mx.play("blast")
+    mx.render(256)
+    assert [v[0] for v in mx._voices if not v[4]] == ["blast"]      # normal again afterwards
+
+
+def test_seal_fires_its_sound_once_per_seal(tmp_path):
+    v = Vanish(vanish_cfg(tmp_path), (720, 1280, 3))
+    fired, t = 0, 0.0
+    for seal in [True] * 40 + [False] * 5 + [True] * 40:
+        t += DT
+        fired += v.update(np.array([640.0, 360.0]) if seal else None, t)
+    assert fired == 2
+
+
+def test_jutsu_sound_is_optional():
+    ok = AudioEngine({**A_CFG, "enabled": False}, FINGER_CFG, None, {"sound": "finger_3", "volume": 1.0})
+    ok.play_jutsu()
+    assert ok.mixer._queue.qsize() == 1
+    missing = AudioEngine({**A_CFG, "enabled": False}, FINGER_CFG, None, {"sound": "nope", "volume": 1.0})
+    missing.play_jutsu()                     # no file: silently nothing, no crash
+    assert missing.mixer._queue.qsize() == 0

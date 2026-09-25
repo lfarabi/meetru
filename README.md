@@ -51,10 +51,10 @@ Orb memakai `assets/video/orb.mp4` (`orb.video` di `config.yaml`): klip berlatar
 
 ### Jutsu menghilang (seal)
 1. Sekali saja (dan setiap kali posisi kamera/cahaya berubah): tekan `B`, keluar dari frame dalam 5 detik, tunggu tulisan *Empty room captured*. Foto ruangan kosong disimpan di `assets/background.png` (tidak di-commit).
-2. Buat segel: dua jari (telunjuk + tengah) di kedua tangan, satu tegak dan satu mendatar, disilangkan; tahan ±0,3 detik → asap `assets/video/smoke.mp4` menyembur di tempat segel dan Anda menghilang (tinggal ruangan kosong).
+2. Buat segel: dua jari (telunjuk + tengah) di kedua tangan, satu tegak dan satu mendatar, disilangkan; tahan ±0,3 detik → suara `seal_sound.mp3` + asap `assets/video/smoke.mp4` menyembur di tempat segel dan Anda menghilang (tinggal ruangan kosong).
 3. Segel lagi → asap lagi → Anda muncul kembali.
 
-Asap green screen di-key otomatis; bagian terpadatnya diletakkan di titik segel (`vanish.smoke_height` untuk ukurannya). Orb tetap bisa dipakai saat tak terlihat. SFX jari dibisukan saat dua tangan terlihat supaya segel tidak memicu suara 2 jari.
+Asap green screen di-key otomatis; bagian terpadatnya diletakkan di titik segel (`vanish.smoke_height` untuk ukurannya). Suara jutsu tidak bisa ditimpa: selama ±3,6 detik itu suara lain (orb, blast, jari, dengung charge) diabaikan, dan selama asap orb tidak bisa dimunculkan. Setelah itu orb tetap bisa dipakai saat tak terlihat. SFX jari dibisukan saat dua tangan terlihat supaya segel tidak memicu suara 2 jari.
 
 ## Pakai di Google Meet / Zoom
 Sekali saja: pasang **VB-CABLE** (https://vb-audio.com/Cable/ → unduh zip → klik kanan `VBCABLE_Setup_x64.exe` → Run as administrator → Install Driver → restart). Setelah itu pastikan output default Windows tetap speaker/headphone Anda, bukan "CABLE Input".
