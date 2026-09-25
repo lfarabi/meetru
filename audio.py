@@ -5,6 +5,7 @@ independent of the VFX.
 """
 import logging
 import queue
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -216,8 +217,37 @@ class Mixer:
         return np.tanh(out * (0.0 if self.muted else self.cfg["master_volume"]))  # soft clip
 
 
+class Fifo:
+    """Thread-safe sample queue from the mic stream to the meeting stream.
+
+    The two devices run on separate clocks, so the queue can creep up or run dry: it is capped at
+    `max_samples` (the oldest audio is dropped, keeping mic latency bounded) and a short read is
+    padded with silence.
+    """
+
+    def __init__(self, max_samples: int):
+        self.max = max_samples
+        self._buf = np.zeros(0, np.float32)
+        self._lock = threading.Lock()
+
+    def write(self, x: np.ndarray):
+        with self._lock:
+            self._buf = np.concatenate([self._buf, x])[-self.max:]
+
+    def read(self, n: int) -> np.ndarray:
+        with self._lock:
+            out, self._buf = self._buf[:n], self._buf[n:]
+        return out if len(out) == n else np.pad(out, (0, n - len(out)))
+
+
 class AudioEngine:
-    def __init__(self, cfg: dict, finger_cfg: dict):
+    """SFX to your headphones (monitor) and, with VB-CABLE, mic + SFX into the meeting.
+
+    Each output has its own Mixer fed the same commands, so both play the same sounds without
+    passing audio between the two device threads.
+    """
+
+    def __init__(self, cfg: dict, finger_cfg: dict, meeting_cfg: dict | None = None):
         self.cfg = cfg
         self.cooldown, self.hold = finger_cfg["cooldown"], finger_cfg["hold"]
         sounds = synthesize(cfg["sample_rate"])
@@ -240,40 +270,104 @@ class AudioEngine:
                 log.warning("No sound %r for %s: put %s.mp3 (or .wav/.ogg/.flac) in %s",
                             spec["sound"], g, spec["sound"], ASSET_DIR)
         loops = ("charge_loop",) + tuple({s["sound"] for s in self.fingers.values() if s["mode"] == "loop"})
-        self.mixer = Mixer(sounds, cfg, loops)
+        self._sounds, self._loop_names = sounds, loops
+        self.mixer = Mixer(sounds, cfg, loops)  # monitor (your headphones)
+        self._mixers = [self.mixer]
+        self.meeting_mixer, self._fifo, self.meeting_cfg = None, None, meeting_cfg
         self._last_played = {}
         self._gesture, self._since, self._fired = None, 0.0, False  # finger gesture being held
-        self._stream = None
+        self._streams = []
         if not cfg["enabled"]:
             return
+        import sounddevice as sd
         try:
-            import sounddevice as sd
-            device = find_device(sd, cfg["host_api"], cfg["output_device"], "output")
-            wasapi = sd.WasapiSettings(auto_convert=True) if "WASAPI" in cfg["host_api"] else None
-            self._stream = sd.OutputStream(samplerate=cfg["sample_rate"], channels=2, dtype="float32",
-                                           blocksize=cfg["blocksize"], device=device, latency="low",
-                                           extra_settings=wasapi, callback=self._callback)
-            self._stream.start()
-            log.info("Audio out: %s (latency %.0f ms)", sd.query_devices(self._stream.device)["name"],
-                     self._stream.latency * 1000)
+            self._open(sd, sd.OutputStream, cfg["output_device"], "output", 2, self._monitor_callback)
         except Exception as e:
-            log.warning("Audio disabled, output device failed: %s", e)
-            self._stream = None
+            log.warning("SFX monitor disabled, output device failed: %s", e)
+        if meeting_cfg and meeting_cfg["enabled"]:
+            self._open_meeting(sd, meeting_cfg)
 
-    def _callback(self, outdata, frames, time_info, status):
+    def _open(self, sd, stream_cls, device_name, kind, channels, callback):
+        device = find_device(sd, self.cfg["host_api"], device_name, kind)
+        wasapi = sd.WasapiSettings(auto_convert=True) if "WASAPI" in self.cfg["host_api"] else None
+        stream = stream_cls(samplerate=self.cfg["sample_rate"], channels=channels, dtype="float32",
+                            blocksize=self.cfg["blocksize"], device=device, latency="low",
+                            extra_settings=wasapi, callback=callback)
+        stream.start()
+        self._streams.append(stream)
+        log.info("Audio %s: %s (latency %.0f ms)", kind, sd.query_devices(device)["name"], stream.latency * 1000)
+
+    def _open_meeting(self, sd, mcfg: dict):
+        self.add_meeting_mixer(mcfg)
+        before = len(self._streams)
+        try:
+            self._open(sd, sd.OutputStream, mcfg["output_device"], "output", 2, self._meeting_callback)
+            self._open(sd, sd.InputStream, mcfg["mic_device"], "input", 1, self._mic_callback)
+            log.info("Meeting audio ON: mic + SFX -> %r. In Meet/Zoom choose the microphone \"CABLE Output\"",
+                     mcfg["output_device"])
+        except Exception as e:
+            log.warning("Meeting audio OFF (participants won't hear SFX): %s. Is VB-CABLE installed? "
+                        "See README", e)
+            for s in self._streams[before:]:
+                s.close()
+            del self._streams[before:]
+            self._mixers.remove(self.meeting_mixer)
+            self.meeting_mixer = None
+
+    def add_meeting_mixer(self, mcfg: dict):
+        """Second mixer + mic queue for the meeting output (no device; the streams feed/drain it)."""
+        self.meeting_cfg = mcfg
+        self.meeting_mixer = Mixer(self._sounds, {**self.cfg, "master_volume": mcfg["sfx_volume"]}, self._loop_names)
+        self.meeting_mixer.muted = self.mixer.muted
+        self._mixers.append(self.meeting_mixer)
+        self._fifo = Fifo(int(mcfg["max_latency_ms"] / 1000 * self.cfg["sample_rate"]))
+
+    @property
+    def meeting_on(self) -> bool:
+        return self.meeting_mixer is not None
+
+    @property
+    def muted(self) -> bool:
+        return self.mixer.muted
+
+    @muted.setter
+    def muted(self, value: bool):
+        for m in self._mixers:
+            m.muted = value
+
+    def _monitor_callback(self, outdata, frames, time_info, status):
         outdata[:] = self.mixer.render(frames)[:, None]
+
+    def _mic_callback(self, indata, frames, time_info, status):
+        self._fifo.write(indata[:, 0].copy())
+
+    def _meeting_callback(self, outdata, frames, time_info, status):
+        mic = self._fifo.read(frames) * self.meeting_cfg["mic_volume"]
+        outdata[:] = np.clip(mic + self.meeting_mixer.render(frames), -1, 1)[:, None]
+
+    def _play(self, name: str, gain: float = 1.0):
+        for m in self._mixers:
+            m.play(name, gain)
+
+    def _stop(self, name: str):
+        for m in self._mixers:
+            m.stop(name)
+
+    def _set_loop(self, name: str, gain: float, rate: float = 1.0):
+        for m in self._mixers:
+            m.set_loop(name, gain, rate)
 
     def update(self, prev: str, state: str, charge: float, blast_power: float, silent_fade: bool = False):
         """Map orb state transitions to SFX; call once per frame."""
         if state != prev:
             if state == ACTIVE and prev == HIDDEN:
-                self.mixer.play("activation")
+                self._play("activation")
             elif state == BLAST:
-                self.mixer.play("blast", 0.6 + 0.4 * blast_power)
+                self._play("blast", 0.6 + 0.4 * blast_power)
             elif state == FADING and not silent_fade:
-                self.mixer.play("power_down", 0.7)
+                self._play("power_down", 0.7)
         gain = (0.5 + 0.5 * charge) * self.cfg["charge_volume"] if state == CHARGING else 0.0
-        self.mixer.set_loop("charge_loop", gain, 1.0 + 0.8 * charge)  # pitch rises with charge
+        self._set_loop("charge_loop", gain, 1.0 + 0.8 * charge)  # pitch rises with charge
 
     def update_fingers(self, gesture: str, t: float, orb_busy: bool = False):
         """Finger-count SFX; call once per frame.
@@ -287,20 +381,20 @@ class AudioEngine:
         if gesture != self._gesture:
             released = self.fingers.get(self._gesture)
             if self._fired and released and released["mode"] == "once":
-                self.mixer.stop(released["sound"])  # gesture let go: its sound stops with it
+                self._stop(released["sound"])  # gesture let go: its sound stops with it
             self._gesture, self._since, self._fired = gesture, t, False
         settled = t - self._since >= self.hold and not orb_busy
         for g, spec in self.fingers.items():
             if spec["mode"] == "loop":
-                self.mixer.set_loop(spec["sound"], spec["volume"] if gesture == g and settled else 0.0)
+                self._set_loop(spec["sound"], spec["volume"] if gesture == g and settled else 0.0)
         spec = self.fingers.get(gesture)
         if spec and spec["mode"] == "once" and settled and not self._fired:
             self._fired = True
             if t - self._last_played.get(gesture, float("-inf")) >= self.cooldown:
-                self.mixer.play(spec["sound"], spec["volume"])
+                self._play(spec["sound"], spec["volume"])
                 self._last_played[gesture] = t
 
     def close(self):
-        if self._stream is not None:
-            self._stream.stop()
-            self._stream.close()
+        for s in self._streams:
+            s.stop()
+            s.close()

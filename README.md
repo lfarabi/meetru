@@ -46,10 +46,16 @@ File MP3 di `assets/audio/` tidak ikut di-commit (`.gitignore`); di PC lain sali
 Preview menampilkan `fingers N thumb ±x.xx` untuk tuning `gesture.finger_straight` dan `gesture.thumb_out`.
 
 ## Pakai di Google Meet / Zoom
+Sekali saja: pasang **VB-CABLE** (https://vb-audio.com/Cable/ → unduh zip → klik kanan `VBCABLE_Setup_x64.exe` → Run as administrator → Install Driver → restart). Setelah itu pastikan output default Windows tetap speaker/headphone Anda, bukan "CABLE Input".
+
 1. Tutup NVIDIA Broadcast (dan app lain yang memegang webcam).
-2. Jalankan `run.bat` **dulu**. Baris atas preview harus `VCAM ON`.
-3. Di Meet: ⋮ → Settings → Video → Camera: **OBS Virtual Camera** (Zoom: Settings → Video → Camera).
-   Jangan pilih "FHD Camera" — webcam sedang dipakai aplikasi ini.
+2. Jalankan `run.bat` **dulu**. Baris atas preview harus `VCAM ON  MEET AUDIO ON`.
+3. Di Meet: ⋮ → Settings →
+   - **Video** → Camera: **OBS Virtual Camera** (jangan "FHD Camera" — webcam sedang dipakai aplikasi ini)
+   - **Audio** → Microphone: **CABLE Output (VB-Audio Virtual Cable)**; kalau SFX terpotong/hilang, matikan *Noise cancellation*
+4. Pakai **headphone**: SFX juga diputar ke speaker Anda, dan kalau lewat speaker, mic akan menangkapnya lagi (gema).
+
+Suara Anda tetap lewat (mic USB Audio CODEC dicampur di aplikasi); `M` hanya membisukan SFX, bukan suara Anda. Untuk mute suara, pakai tombol mute di Meet.
 
 Meet me-mirror tampilan diri Anda sendiri; peserta lain melihat versi tidak ter-mirror (tulisan terbaca normal). Overlay debug (FPS, gesture) hanya ada di preview, tidak terkirim. Aplikasi OBS Studio tidak perlu dibuka; kalau OBS terbuka dengan "Start Virtual Camera" aktif, matikan dulu (preview akan menulis `VCAM OFF`).
 

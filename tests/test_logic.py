@@ -475,3 +475,52 @@ def test_virtual_camera_failure_falls_back_to_preview_only(monkeypatch):
 
 def test_virtual_camera_can_be_disabled():
     assert main.open_virtual_camera({"enabled": False, "backend": "obs"}, 1280, 720, 30) is None
+
+
+# --- meeting audio (mic + SFX into VB-CABLE) -------------------------------------
+from audio import Fifo  # noqa: E402
+
+MEET_CFG = {"enabled": True, "mic_device": "x", "output_device": "y", "mic_volume": 1.0,
+            "sfx_volume": 0.8, "max_latency_ms": 60}
+
+
+def test_fifo_keeps_order_pads_underflow_and_caps_latency():
+    f = Fifo(4)
+    f.write(np.array([1, 2, 3], np.float32))
+    assert list(f.read(2)) == [1, 2]
+    assert list(f.read(3)) == [3, 0, 0]          # ran dry: silence, not a stall
+    f.write(np.arange(10, dtype=np.float32))
+    assert list(f.read(4)) == [6, 7, 8, 9]       # backed up: oldest dropped, latency stays bounded
+
+
+def meeting_out(e, frames=256):
+    out = np.zeros((frames, 2), np.float32)
+    e._meeting_callback(out, frames, None, None)
+    return out
+
+
+def test_meeting_output_carries_mic_and_sfx():
+    f = Fingers()
+    f.e.add_meeting_mixer(MEET_CFG)
+    mic = np.full(256, 0.1, np.float32)
+    f.e._fifo.write(mic)
+    assert np.allclose(meeting_out(f.e)[:, 0], 0.1)     # voice passes through untouched
+    f.show(ONE, 0.3)                                     # finger SFX goes to both mixers
+    assert f.e.meeting_mixer._queue.qsize() == 1
+    loudest = 0.0
+    for _ in range(20):  # ~0.1 s of the beep
+        f.e._fifo.write(mic)
+        out = meeting_out(f.e)
+        assert np.allclose(out[:, 0], out[:, 1])
+        loudest = max(loudest, float(np.abs(out[:, 0] - 0.1).max()))
+    assert loudest > 0.05
+
+
+def test_mute_silences_sfx_everywhere_but_not_the_voice():
+    f = Fingers()
+    f.e.add_meeting_mixer(MEET_CFG)
+    f.e.muted = True
+    f.show(THREE, 0.3)
+    f.e._fifo.write(np.full(256, 0.1, np.float32))
+    assert np.allclose(meeting_out(f.e)[:, 0], 0.1)
+    assert not f.e.mixer.render(256).any()

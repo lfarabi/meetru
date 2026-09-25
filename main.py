@@ -84,7 +84,7 @@ def main() -> int:
     orb = EnergyOrb(cfg)
     anchor = None  # last known orb position/radius, kept so the orb can fade out where the hand was
     effects_on, show_skeleton = True, False
-    audio = AudioEngine(cfg["audio"], cfg["finger_sfx"])
+    audio = AudioEngine(cfg["audio"], cfg["finger_sfx"], cfg["meeting_audio"])
     audio_state = HIDDEN  # state last reported to audio; forced to HIDDEN while effects are off
     vcam = open_virtual_camera(cfg["virtual_camera"], frame.shape[1], frame.shape[0], cfg["camera"]["fps"])
 
@@ -127,12 +127,13 @@ def main() -> int:
             draw_skeleton(preview, lm)
         preview = cv2.flip(preview, 1)
         color = GESTURE_COLORS.get(gesture, (180, 180, 180))
-        vcam_label = "VCAM ON" if vcam is not None else "VCAM OFF (preview only)"
-        cv2.putText(preview, f"FPS {fps:4.1f}  {vcam_label}", (16, 36), cv2.FONT_HERSHEY_SIMPLEX, 0.9,
+        vcam_label = "VCAM ON" if vcam is not None else "VCAM OFF"
+        meet_label = "MEET AUDIO ON" if audio.meeting_on else "MEET AUDIO OFF"
+        cv2.putText(preview, f"FPS {fps:4.1f}  {vcam_label}  {meet_label}", (16, 36), cv2.FONT_HERSHEY_SIMPLEX, 0.9,
                     (255, 255, 255), 2, cv2.LINE_AA)
         cv2.putText(preview, gesture, (16, 76), cv2.FONT_HERSHEY_SIMPLEX, 1.1, color, 3, cv2.LINE_AA)
         status = f"{state}  charge {machine.charge:.0%}" if effects_on else "EFFECTS OFF"
-        if audio.mixer.muted:
+        if audio.muted:
             status += "  [SFX MUTED]"
         cv2.putText(preview, status, (16, 112), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
         if lm is not None:
@@ -150,7 +151,7 @@ def main() -> int:
         if key == ord("d"):
             show_skeleton = not show_skeleton
         if key == ord("m"):
-            audio.mixer.muted = not audio.mixer.muted
+            audio.muted = not audio.muted  # SFX only, for you and the meeting; your voice keeps going
 
     if vcam is not None:
         vcam.close()

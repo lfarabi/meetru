@@ -78,3 +78,14 @@ audio:
   charge_volume: 0.6
   # put activation / charge_loop / blast / power_down (.mp3 .wav .ogg .flac) into
   # assets/audio/ to replace the synthesized orb placeholders
+
+meeting_audio:
+  # Your mic + the sound effects go to VB-CABLE, so meeting participants hear the SFX.
+  # In Meet/Zoom choose the microphone "CABLE Output (VB-Audio Virtual Cable)".
+  # Without VB-CABLE installed the app still runs; only you hear the SFX (MEET AUDIO OFF).
+  enabled: true
+  mic_device: USB Audio CODEC   # your real microphone (part of its name)
+  output_device: CABLE Input    # VB-CABLE's playback side
+  mic_volume: 1.0
+  sfx_volume: 0.8               # SFX loudness in the meeting (next to your voice)
+  max_latency_ms: 60            # mic buffer cap; older audio is dropped if the two device clocks drift
