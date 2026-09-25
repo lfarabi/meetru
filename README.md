@@ -56,6 +56,11 @@ Orb memakai `assets/video/orb.mp4` (`orb.video` di `config.yaml`): klip berlatar
 
 Asap green screen di-key otomatis; bagian terpadatnya diletakkan di titik segel (`vanish.smoke_height` untuk ukurannya). Suara jutsu tidak bisa ditimpa: selama ±3,6 detik itu suara lain (orb, blast, jari, dengung charge) diabaikan, dan selama asap orb tidak bisa dimunculkan. Setelah itu orb tetap bisa dipakai saat tak terlihat. SFX jari dibisukan saat dua tangan terlihat supaya segel tidak memicu suara 2 jari.
 
+### Pose wow
+Kedua telapak terbuka, pergelangan berdempetan di bawah dagu, jari ke atas (seperti membingkai wajah); tahan ±0,3 detik → suara `anime-wow-sound-effect.mp3` + klip green screen `assets/video/wow.mp4` muncul layar penuh sesuai framing aslinya. Suaranya eksklusif seperti suara jutsu. Jangan terlalu merapatkan kedua tangan: kalau bertumpuk, MediaPipe bisa hanya melihat satu tangan.
+
+Dua tangan terlihat = mode pose: orb tidak muncul/charge dan SFX jari dibisukan.
+
 ## Pakai di Google Meet / Zoom
 Sekali saja: pasang **VB-CABLE** (https://vb-audio.com/Cable/ → unduh zip → klik kanan `VBCABLE_Setup_x64.exe` → Run as administrator → Install Driver → restart). Setelah itu pastikan output default Windows tetap speaker/headphone Anda, bukan "CABLE Input".
 
