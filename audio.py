@@ -1,6 +1,7 @@
 """Gesture SFX: placeholder sounds synthesized with NumPy (overridable by WAVs) and a low-latency mixer.
 
-Audio follows orb *state* transitions, never the renderer, so it stays independent of the VFX.
+Audio follows orb *state* transitions and finger-count gestures, never the renderer, so it stays
+independent of the VFX.
 """
 import logging
 import queue
@@ -9,10 +10,10 @@ from pathlib import Path
 
 import numpy as np
 
-from gestures import ACTIVE, BLAST, CHARGING, FADING, HIDDEN
+from gestures import ACTIVE, BLAST, CHARGING, FADING, FINGER_GESTURES, HIDDEN
 
 log = logging.getLogger(__name__)
-SOUNDS = ("activation", "charge_loop", "blast", "power_down")
+ORB_SOUNDS = ("activation", "charge_loop", "blast", "power_down")
 ASSET_DIR = Path("assets/audio")
 
 
@@ -24,11 +25,15 @@ def _band(x: np.ndarray, lo: float, hi: float, sr: int) -> np.ndarray:
     return np.fft.irfft(spec, len(x))
 
 
-def _chirp(f0: float, f1: float, seconds: float, sr: int) -> np.ndarray:
-    """Exponential sine sweep from f0 to f1 Hz."""
+def _sweep_phase(f0: float, f1: float, seconds: float, sr: int) -> np.ndarray:
+    """Phase (radians) of an exponential sweep from f0 to f1 Hz."""
     t = np.arange(int(seconds * sr)) / sr
     k = f1 / f0
-    return np.sin(2 * np.pi * f0 * seconds / np.log(k) * (k ** (t / seconds) - 1))
+    return 2 * np.pi * f0 * seconds / np.log(k) * (k ** (t / seconds) - 1)
+
+
+def _chirp(f0: float, f1: float, seconds: float, sr: int) -> np.ndarray:
+    return np.sin(_sweep_phase(f0, f1, seconds, sr))
 
 
 def _norm(x: np.ndarray, peak: float = 0.9) -> np.ndarray:
@@ -69,7 +74,50 @@ def synthesize(sr: int) -> dict[str, np.ndarray]:
     fall = _chirp(700, 90, d, sr) * (1 + 0.1 * np.sin(2 * np.pi * 9 * tt))
     power_down = _norm(fall * (1 - tt / d) ** 2 + _band(rng.standard_normal(len(tt)), 100, 800, sr) * 0.2 * (1 - tt / d))
 
-    return {"activation": activation, "charge_loop": charge_loop, "blast": blast, "power_down": power_down}
+    # finger 1: short click / beep
+    d = 0.18
+    tt = t(d)
+    finger_1 = _norm(np.sin(2 * np.pi * 1320 * tt) * np.exp(-tt / 0.05)
+                     + rng.standard_normal(len(tt)) * np.exp(-tt / 0.002) * 0.5)
+
+    # finger 2: swoosh, noise sweeping from a low band to a high band
+    d = 0.8
+    tt = t(d)
+    x = tt / d
+    swoosh = (_band(rng.standard_normal(len(tt)), 300, 2000, sr) * (1 - x)
+              + _band(rng.standard_normal(len(tt)), 1500, 8000, sr) * x)
+    finger_2 = _norm(swoosh * np.sin(np.pi * x) ** 1.5)
+
+    # finger 3: synth rise, then explosion
+    rise_d, boom_d = 1.1, 1.2
+    phase = _sweep_phase(110, 880, rise_d, sr)
+    saw = sum(np.sin(k * phase) / k for k in range(1, 9)) * (t(rise_d) / rise_d) ** 2
+    tb = t(boom_d)
+    boom = np.tanh((_band(rng.standard_normal(len(tb)), 40, 3000, sr) * np.exp(-tb / 0.3)
+                    + _chirp(120, 35, boom_d, sr) * np.exp(-tb / 0.45) * 1.2) * 1.6)
+    finger_3 = _norm(np.concatenate([saw / np.abs(saw).max() * 0.6, boom]))
+
+    # finger 4: 2 s beat loop at 120 BPM (kick, snare, hats); every hit decays before the loop point
+    d = 2.0
+    beat = np.zeros(int(d * sr))
+
+    def hit(start, sound):
+        i = int(start * sr)
+        beat[i:i + len(sound)] += sound[:len(beat) - i]
+
+    tk = t(0.25)
+    for start in (0.0, 1.0):
+        hit(start, np.sin(_sweep_phase(150, 45, 0.25, sr)) * np.exp(-tk / 0.12))
+    for start in (0.5, 1.5):
+        hit(start, _band(rng.standard_normal(len(tk)), 1000, 6000, sr) * np.exp(-tk / 0.06) * 0.8
+            + np.sin(2 * np.pi * 200 * tk) * np.exp(-tk / 0.05) * 0.4)
+    th = t(0.1)
+    for start in np.arange(0, d, 0.25):
+        hit(start, _band(rng.standard_normal(len(th)), 7000, 12000, sr) * np.exp(-th / 0.02) * 0.3)
+    finger_4 = _norm(beat, 0.8)
+
+    return {"activation": activation, "charge_loop": charge_loop, "blast": blast, "power_down": power_down,
+            "finger_1": finger_1, "finger_2": finger_2, "finger_3": finger_3, "finger_4": finger_4}
 
 
 def load_wav(path: Path, sr: int) -> np.ndarray:
@@ -97,19 +145,31 @@ def find_device(sd, host_api: str, name: str | None, kind: str) -> int:
     raise LookupError(f"no {kind} device matching {name!r} on {host_api}")
 
 
-class Mixer:
-    """One-shot voices plus a pitch-shiftable charge loop. `render` runs on the audio thread."""
+class _Loop:
+    def __init__(self, buffer: np.ndarray):
+        self.buffer = buffer
+        self.target_gain, self.target_rate = 0.0, 1.0  # written by the main thread
+        self.gain, self.rate, self.pos = 0.0, 1.0, 0.0  # owned by the audio thread
 
-    def __init__(self, sounds: dict[str, np.ndarray], cfg: dict):
+
+class Mixer:
+    """One-shot voices plus looping sounds with gain/pitch control. `render` runs on the audio thread."""
+
+    def __init__(self, sounds: dict[str, np.ndarray], cfg: dict, loops: tuple[str, ...] = ("charge_loop",)):
         self.sounds, self.cfg = sounds, cfg
         self.muted = False
-        self.loop_gain_target, self.loop_rate_target = 0.0, 1.0  # written by the main thread
         self._queue = queue.SimpleQueue()
         self._voices = []  # [buffer, position, gain]
-        self._loop_gain, self._loop_rate, self._loop_pos = 0.0, 1.0, 0.0
+        # created up front so the audio thread never sees the dict change size
+        self._loops = {name: _Loop(sounds[name]) for name in loops}
 
     def play(self, name: str, gain: float = 1.0):
         self._queue.put((name, gain))
+
+    def set_loop(self, name: str, gain: float, rate: float = 1.0):
+        """Fade a loop toward `gain` (0 = stop) at playback `rate` (pitch)."""
+        loop = self._loops[name]
+        loop.target_gain, loop.target_rate = gain, rate
 
     def render(self, n: int) -> np.ndarray:
         out = np.zeros(n, np.float32)
@@ -122,27 +182,30 @@ class Mixer:
             v[1] += n
         self._voices = [v for v in self._voices if v[1] < len(v[0])]
 
-        target = self.loop_gain_target * self.cfg["charge_volume"]
-        if target > 0 or self._loop_gain > 1e-4:
-            loop = self.sounds["charge_loop"]
-            self._loop_rate += (self.loop_rate_target - self._loop_rate) * 0.3
-            idx = self._loop_pos + np.arange(n) * self._loop_rate  # resampling = pitch shift
-            i0 = idx.astype(np.int64) % len(loop)
+        for lp in self._loops.values():
+            if lp.target_gain <= 0 and lp.gain <= 1e-4:
+                continue
+            buf = lp.buffer
+            lp.rate += (lp.target_rate - lp.rate) * 0.3
+            idx = lp.pos + np.arange(n) * lp.rate  # resampling = pitch shift
+            i0 = idx.astype(np.int64) % len(buf)
             frac = (idx - np.floor(idx)).astype(np.float32)
-            sample = loop[i0] * (1 - frac) + loop[(i0 + 1) % len(loop)] * frac
-            new_gain = self._loop_gain + (target - self._loop_gain) * min(1.0, n / (0.06 * self.cfg["sample_rate"]))
-            out += sample * np.linspace(self._loop_gain, new_gain, n, dtype=np.float32)  # click-free ramp
-            self._loop_gain = new_gain
-            self._loop_pos = (self._loop_pos + n * self._loop_rate) % len(loop)
+            sample = buf[i0] * (1 - frac) + buf[(i0 + 1) % len(buf)] * frac
+            new_gain = lp.gain + (lp.target_gain - lp.gain) * min(1.0, n / (0.06 * self.cfg["sample_rate"]))
+            out += sample * np.linspace(lp.gain, new_gain, n, dtype=np.float32)  # click-free ramp
+            lp.gain = new_gain
+            lp.pos = (lp.pos + n * lp.rate) % len(buf)
 
         return np.tanh(out * (0.0 if self.muted else self.cfg["master_volume"]))  # soft clip
 
 
 class AudioEngine:
-    def __init__(self, cfg: dict):
+    def __init__(self, cfg: dict, finger_cfg: dict):
         self.cfg = cfg
+        self.cooldown = finger_cfg["cooldown"]
         sounds = synthesize(cfg["sample_rate"])
-        for name in SOUNDS:
+        wanted = set(ORB_SOUNDS) | {finger_cfg[g]["sound"] for g in FINGER_GESTURES if g in finger_cfg}
+        for name in wanted:
             path = ASSET_DIR / f"{name}.wav"
             if path.exists():
                 try:
@@ -150,7 +213,17 @@ class AudioEngine:
                     log.info("Using %s", path)
                 except Exception as e:
                     log.warning("Ignoring %s: %s", path, e)
-        self.mixer = Mixer(sounds, cfg)
+        # gesture -> {sound, mode, volume}; a mapping whose sound can't be found is dropped with a warning
+        self.fingers = {}
+        for g in FINGER_GESTURES:
+            spec = finger_cfg.get(g)
+            if spec and spec["sound"] in sounds:
+                self.fingers[g] = spec
+            elif spec:
+                log.warning("No sound %r for %s: put %s.wav in %s", spec["sound"], g, spec["sound"], ASSET_DIR)
+        loops = ("charge_loop",) + tuple({s["sound"] for s in self.fingers.values() if s["mode"] == "loop"})
+        self.mixer = Mixer(sounds, cfg, loops)
+        self._last_played = {}
         self._stream = None
         if not cfg["enabled"]:
             return
@@ -171,18 +244,28 @@ class AudioEngine:
     def _callback(self, outdata, frames, time_info, status):
         outdata[:] = self.mixer.render(frames)[:, None]
 
-    def update(self, prev: str, state: str, charge: float, blast_power: float):
+    def update(self, prev: str, state: str, charge: float, blast_power: float, silent_fade: bool = False):
         """Map orb state transitions to SFX; call once per frame."""
         if state != prev:
             if state == ACTIVE and prev == HIDDEN:
                 self.mixer.play("activation")
             elif state == BLAST:
                 self.mixer.play("blast", 0.6 + 0.4 * blast_power)
-            elif state == FADING:
+            elif state == FADING and not silent_fade:
                 self.mixer.play("power_down", 0.7)
-        charging = state == CHARGING
-        self.mixer.loop_gain_target = 0.5 + 0.5 * charge if charging else 0.0
-        self.mixer.loop_rate_target = 1.0 + 0.8 * charge  # pitch rises with charge
+        gain = (0.5 + 0.5 * charge) * self.cfg["charge_volume"] if state == CHARGING else 0.0
+        self.mixer.set_loop("charge_loop", gain, 1.0 + 0.8 * charge)  # pitch rises with charge
+
+    def update_fingers(self, prev: str, gesture: str, t: float):
+        """Finger-count SFX: 'once' plays on entering the gesture (rate-limited), 'loop' plays while held."""
+        for g, spec in self.fingers.items():
+            if spec["mode"] == "loop":
+                self.mixer.set_loop(spec["sound"], spec["volume"] if gesture == g else 0.0)
+        spec = self.fingers.get(gesture)
+        if gesture != prev and spec and spec["mode"] == "once":
+            if t - self._last_played.get(gesture, float("-inf")) >= self.cooldown:
+                self.mixer.play(spec["sound"], spec["volume"])
+                self._last_played[gesture] = t
 
     def close(self):
         if self._stream is not None:

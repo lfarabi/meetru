@@ -8,14 +8,15 @@ import numpy as np
 import yaml
 
 from audio import AudioEngine
-from gestures import FIST, HIDDEN, OPEN_PALM, GestureClassifier, OrbMachine
+from gestures import FIST, FOUR, HIDDEN, NO_HAND, ONE, OPEN_PALM, THREE, TWO, GestureClassifier, OrbMachine
 from orb import EnergyOrb, occlude_by_hand, orb_anchor
 from tracking import CONNECTIONS, HandTracker, Smoother, palm_normal
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("hand-vfx")
 
-GESTURE_COLORS = {OPEN_PALM: (80, 220, 80), FIST: (60, 140, 255)}
+GESTURE_COLORS = {OPEN_PALM: (80, 220, 80), FIST: (60, 140, 255), ONE: (255, 170, 50),
+                  TWO: (120, 230, 60), THREE: (40, 150, 255), FOUR: (230, 90, 180)}
 
 
 def open_camera(cfg: dict) -> cv2.VideoCapture:
@@ -67,8 +68,9 @@ def main() -> int:
     orb = EnergyOrb(cfg)
     anchor = None  # last known orb position/radius, kept so the orb can fade out where the hand was
     effects_on, show_skeleton = True, False
-    audio = AudioEngine(cfg["audio"])
+    audio = AudioEngine(cfg["audio"], cfg["finger_sfx"])
     audio_state = HIDDEN  # state last reported to audio; forced to HIDDEN while effects are off
+    audio_gesture = NO_HAND  # likewise for finger-count SFX
 
     fps, last = 0.0, time.perf_counter()
     while True:
@@ -83,7 +85,7 @@ def main() -> int:
         hand = tracker.detect(frame, int(now * 1000))
         lm = smoother.update(hand.lm if hand else None)
         world = world_smoother.update(hand.world if hand else None)
-        gesture = classifier.update(lm)
+        gesture = classifier.update(lm, world)
         state = machine.update(gesture, classifier.openness if lm is not None else None, now)
         occlusion = 0.0
         if lm is not None:
@@ -97,8 +99,11 @@ def main() -> int:
             if original is not None:
                 occlude_by_hand(frame, original, lm, occlusion)
         new_audio_state = state if effects_on else HIDDEN
-        audio.update(audio_state, new_audio_state, machine.charge, machine.blast_power)
+        audio.update(audio_state, new_audio_state, machine.charge, machine.blast_power, machine.silent_fade)
         audio_state = new_audio_state
+        new_audio_gesture = gesture if effects_on else NO_HAND
+        audio.update_fingers(audio_gesture, new_audio_gesture, now)
+        audio_gesture = new_audio_gesture
 
         # `frame` is what will go to the meeting (unmirrored, no overlay); preview is a mirrored copy.
         preview = frame.copy()
@@ -114,6 +119,8 @@ def main() -> int:
         cv2.putText(preview, status, (16, 112), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
         if lm is not None:
             cv2.putText(preview, f"openness {classifier.openness:.2f}  palm {facing(normal)}", (16, 142),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
+            cv2.putText(preview, f"fingers {classifier.fingers}  thumb {classifier.thumb:+.2f}", (16, 172),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
         cv2.imshow("Hand VFX Camera (Space effects, M mute, D skeleton, Q quit)", preview)
 

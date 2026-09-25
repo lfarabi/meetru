@@ -17,6 +17,19 @@ gesture:
   open_above: 0.8        # openness above this → OPEN_PALM; in between keeps previous (hysteresis)
   debounce_frames: 3     # consecutive frames needed before a gesture change is accepted
   lost_frames: 5         # frames without a hand before reporting NO_HAND
+  # finger counting (3D, rotation-free). Measured: raised fingers ≥ 0.94, folded ≤ 0.71
+  finger_straight: 0.82  # a finger counts as raised above this straightness (knuckle→tip / finger length)
+  # thumb tip sideways past the index knuckle, in palm lengths. Measured: out +0.3…+0.56, folded −0.2…−0.4
+  thumb_out: 0.1         # above → thumb out (3+ fingers = OPEN_PALM); below → folded (4 fingers = FOUR)
+
+finger_sfx:
+  # sound = WAV name in assets/audio/ (without .wav); built-ins: finger_1..finger_4
+  # mode: once = play when the gesture is formed, loop = play while it is held
+  cooldown: 0.3          # min seconds between replays of the same 'once' sound
+  ONE:   {sound: finger_1, mode: once, volume: 1.0}   # short click / beep
+  TWO:   {sound: finger_2, mode: once, volume: 1.0}   # swoosh
+  THREE: {sound: finger_3, mode: once, volume: 1.0}   # synth rise + explosion
+  FOUR:  {sound: finger_4, mode: loop, volume: 0.8}   # rhythm loop
 
 orb:
   color_bgr: [255, 115, 20]   # electric blue body; streaks, swooshes and core glow toward white

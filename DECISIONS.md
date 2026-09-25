@@ -10,7 +10,9 @@ Hasil sesi grilling 2026-09-25 atas `hand-vfx-camera-project-handoff.md`. Jika b
 ## Input & tracking
 - Kamera: "FHD Camera" = DirectShow index 0 (saat NVIDIA Broadcast tertutup), 1280×720 MJPG. Terukur ±25 FPS (dibatasi kamera/pencahayaan; tracking hanya ±11 ms/frame). NVIDIA Broadcast harus ditutup karena memegang webcam.
 - Satu tangan saja pada MVP.
-- Gesture: NO_HAND / OPEN_PALM / FIST. Jarak fingertip dinormalisasi dengan ukuran telapak (wrist→middle MCP), ada hysteresis + debounce agar tidak flicker.
+- Gesture: NO_HAND / OPEN_PALM / FIST / ONE / TWO / THREE / FOUR, dengan debounce agar tidak flicker.
+- Jari terangkat dihitung dari landmark 3D (kelurusan jari > 0.82 dan ujung melewati sendi tengah) → tahan rotasi tangan. Jempol "keluar" = ujung jempol di luar tepi telapak sisi telunjuk (> 0.1 panjang telapak). Angka awal diukur dari gambar referensi user (jari lurus ≥ 0.94, terlipat ≤ 0.71; jempol keluar +0.3…+0.56, terlipat −0.2…−0.4).
+- Prioritas: ≥3 jari + jempol keluar → OPEN_PALM; 1–4 jari → ONE…FOUR (dihitung jumlahnya, jari mana pun; jempol diabaikan kecuali membedakan FOUR vs OPEN_PALM); 0 jari + openness < 0.55 → FIST. Jari terangkat menang atas openness, karena 1 jari hanya sedikit menaikkan openness rata-rata (0.59 di gambar referensi, nyaris terbaca FIST).
 
 ## Efek
 - Energy Orb gaya Orb (sesuai gambar referensi user, dibuat prosedural karena PNG referensi berlatar checkerboard): bola biru pekat semi-solid, garis cahaya kusut berputar, inti putih, 5 sabetan sabit biru di orbit miring, percikan. Charge hingga 3 detik.
@@ -26,6 +28,8 @@ Hasil sesi grilling 2026-09-25 atas `hand-vfx-camera-project-handoff.md`. Jika b
 - Video: `pyvirtualcam` langsung ke driver OBS Virtual Camera (aplikasi OBS tidak perlu dibuka).
 - Video ke meeting **tidak** di-mirror; preview lokal di-mirror + overlay debug (FPS, gesture, state). Overlay tidak masuk ke meeting.
 - Audio: SFX placeholder disintesis NumPy (bisa diganti WAV 16-bit di `assets/audio/`). SFX lokal dimajukan ke Checkpoint 2 atas permintaan user: WASAPI (±22 ms; MME ±96 ms) ke output default Windows (saat ini Speakers Realtek), bisa diganti via `audio.output_device`.
+- **SFX gesture jari** (dari gambar referensi user): 1 jari = klik/beep, 2 = swoosh, 3 = synth naik + ledakan (sekali saat gesture dibentuk, jeda ulang 0.3 s); 4 = beat loop selama ditahan. Pemetaan gesture → nama WAV / mode (`once`/`loop`) / volume di `finger_sfx` pada `config.yaml`; file di `assets/audio/`, fallback ke placeholder bawaan; nama yang tak ditemukan diabaikan dengan peringatan. Hanya WAV 16-bit (MP3 butuh library tambahan).
+- Gesture jari saat orb aktif → orb memudar **tanpa** suara power-down. Gesture jari tidak memunculkan orb. Belum ada visual untuk gesture jari (hanya label di preview).
 - Checkpoint 4: mixer `sounddevice` mic **USB Audio CODEC** + SFX → VB-CABLE Input → mic "CABLE Output" di Meet.
 - VB-CABLE diinstal manual oleh user saat Checkpoint 4. Jika Meet memotong SFX, matikan noise cancellation Meet.
 

@@ -23,7 +23,25 @@ Gesture: buka telapak → orb muncul · kepal → charging (maks 3 detik, suara 
 
 Kamera dipilih lewat `camera.device_id` di `config.yaml`. Webcam hanya bisa dipakai satu aplikasi: tutup NVIDIA Broadcast / Meet / Zoom yang memegang kamera fisik.
 
-SFX keluar ke output default Windows; ganti lewat `audio.output_device` (sebagian nama perangkat, mis. `"USB Audio CODEC"`). SFX sendiri bisa ditaruh di `assets/audio/`.
+SFX keluar ke output default Windows; ganti lewat `audio.output_device` (sebagian nama perangkat, mis. `"USB Audio CODEC"`).
+
+### Gesture jari → sound effect
+
+| Gesture (jempol dilipat) | Suara bawaan | Mode |
+|---|---|---|
+| ☝️ 1 jari | klik / beep | sekali |
+| ✌️ 2 jari | swoosh | sekali |
+| 3 jari | synth naik + ledakan | sekali |
+| 4 jari | beat ritmis | loop selama ditahan |
+
+Mengganti suara: taruh WAV 16-bit di `assets/audio/` (mis. `airhorn.wav`), lalu di `config.yaml`:
+
+```yaml
+finger_sfx:
+  TWO: {sound: airhorn, mode: once, volume: 1.0}
+```
+
+Preview menampilkan `fingers N thumb ±x.xx` untuk tuning `gesture.finger_straight` dan `gesture.thumb_out`.
 
 ## Tes
 ```bash
