@@ -72,3 +72,92 @@ def test_brief_hand_loss_does_not_report_no_hand():
     assert feed(c, None, 4) == OPEN_PALM
     assert feed(c, None, 1) == NO_HAND
 
+
+
+# --- orb state machine -------------------------------------------------------
+from gestures import ACTIVE, BLAST, CHARGING, FADING, HIDDEN, OrbMachine  # noqa: E402
+
+import yaml  # noqa: E402
+
+M_CFG = yaml.safe_load(open("config.yaml", encoding="utf-8"))
+FIST_O, MID_O, OPEN_O = 0.3, 0.7, 1.1  # openness values: fist, dead zone, open
+DT = 0.04
+
+
+class Driver:
+    def __init__(self):
+        self.m, self.t = OrbMachine(M_CFG), 0.0
+
+    def run(self, gesture, openness, seconds):
+        for _ in range(max(1, round(seconds / DT))):
+            self.t += DT
+            self.m.update(gesture, openness, self.t)
+        return self.m.state
+
+
+def charged(seconds):
+    d = Driver()
+    d.run(OPEN_PALM, OPEN_O, 0.3)
+    d.run(FIST, FIST_O, seconds)
+    return d
+
+
+def test_open_palm_spawns_and_fades_in():
+    d = Driver()
+    assert d.run(OPEN_PALM, OPEN_O, 0.1) == ACTIVE
+    assert 0 < d.m.presence < 1
+    d.run(OPEN_PALM, OPEN_O, 0.3)
+    assert d.m.presence == 1
+
+
+def test_fist_charges_and_saturates():
+    d = charged(1.5)
+    assert d.m.state == CHARGING and 0.4 < d.m.charge < 0.6
+    d.run(FIST, FIST_O, 3)
+    assert d.m.charge == 1
+
+
+def test_short_charge_release_returns_to_active():
+    d = charged(0.3)
+    assert d.run(OPEN_PALM, OPEN_O, 0.1) == ACTIVE
+
+
+def test_quick_release_after_charge_blasts_immediately():
+    d = charged(1.0)
+    # raw openness jumps to open before the debounced gesture has caught up
+    assert d.run(FIST, OPEN_O, 2 * DT) == BLAST
+    assert d.m.blast_power > 0.3
+
+
+def test_slow_release_does_not_blast():
+    d = charged(1.0)
+    d.run(FIST, MID_O, 0.4)  # lingering half-open longer than the release window
+    assert d.run(OPEN_PALM, OPEN_O, 0.1) == ACTIVE
+
+
+def test_single_open_glitch_does_not_blast():
+    d = charged(1.0)
+    d.run(FIST, OPEN_O, DT)
+    assert d.run(FIST, FIST_O, 0.2) == CHARGING
+
+
+def test_blast_ends_hidden_with_cooldown_then_respawns():
+    d = charged(1.0)
+    d.run(FIST, OPEN_O, 2 * DT)
+    assert d.run(OPEN_PALM, OPEN_O, M_CFG["blast"]["duration"]) == HIDDEN
+    assert d.run(OPEN_PALM, OPEN_O, 0.2) == HIDDEN  # still cooling down
+    assert d.run(OPEN_PALM, OPEN_O, 1.0) == ACTIVE
+
+
+def test_hand_loss_fades_out_then_hides():
+    d = Driver()
+    d.run(OPEN_PALM, OPEN_O, 0.5)
+    assert d.run(NO_HAND, None, 0.1) == FADING
+    assert d.run(NO_HAND, None, 0.6) == HIDDEN
+
+
+def test_hand_returning_during_fade_revives_orb():
+    d = Driver()
+    d.run(OPEN_PALM, OPEN_O, 0.5)
+    d.run(NO_HAND, None, 0.1)
+    assert d.run(OPEN_PALM, OPEN_O, DT) == ACTIVE

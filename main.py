@@ -1,4 +1,4 @@
-"""Hand VFX Camera — Checkpoint 1: webcam preview with hand skeleton, gesture and FPS."""
+"""Hand VFX Camera: webcam → hand tracking → gesture → Energy Orb, with a mirrored debug preview."""
 import logging
 import sys
 import time
@@ -6,7 +6,8 @@ import time
 import cv2
 import yaml
 
-from gestures import FIST, OPEN_PALM, GestureClassifier
+from gestures import FIST, OPEN_PALM, GestureClassifier, OrbMachine
+from orb import EnergyOrb, orb_anchor
 from tracking import CONNECTIONS, HandTracker, Smoother
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -52,6 +53,10 @@ def main() -> int:
         return 1
     smoother = Smoother(cfg["tracking"]["smoothing"])
     classifier = GestureClassifier(cfg["gesture"])
+    machine = OrbMachine(cfg)
+    orb = EnergyOrb(cfg)
+    anchor = None  # last known orb position/radius, kept so the orb can fade out where the hand was
+    effects_on, show_skeleton = True, False
 
     fps, last = 0.0, time.perf_counter()
     while True:
@@ -66,22 +71,34 @@ def main() -> int:
         raw = tracker.detect(frame, int(now * 1000))
         lm = smoother.update(raw)
         gesture = classifier.update(lm)
+        state = machine.update(gesture, classifier.openness if lm is not None else None, now)
+        if lm is not None:
+            anchor = orb_anchor(lm, cfg["orb"])
+        if effects_on and anchor is not None:
+            orb.draw(frame, machine, *anchor, now)
 
         # `frame` is what will go to the meeting (unmirrored, no overlay); preview is a mirrored copy.
         preview = frame.copy()
-        if lm is not None:
+        if show_skeleton and lm is not None:
             draw_skeleton(preview, lm)
         preview = cv2.flip(preview, 1)
         color = GESTURE_COLORS.get(gesture, (180, 180, 180))
         cv2.putText(preview, f"FPS {fps:4.1f}", (16, 36), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
         cv2.putText(preview, gesture, (16, 76), cv2.FONT_HERSHEY_SIMPLEX, 1.1, color, 3, cv2.LINE_AA)
+        status = f"{state}  charge {machine.charge:.0%}" if effects_on else "EFFECTS OFF"
+        cv2.putText(preview, status, (16, 112), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
         if lm is not None:
-            cv2.putText(preview, f"openness {classifier.openness:.2f}", (16, 112),
+            cv2.putText(preview, f"openness {classifier.openness:.2f}", (16, 142),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-        cv2.imshow("Hand VFX Camera (Q/Esc = quit)", preview)
+        cv2.imshow("Hand VFX Camera (Space effects, D skeleton, Q quit)", preview)
 
-        if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
+        key = cv2.waitKey(1) & 0xFF
+        if key in (ord("q"), 27):
             break
+        if key == ord(" "):
+            effects_on = not effects_on
+        if key == ord("d"):
+            show_skeleton = not show_skeleton
 
     tracker.close()
     cap.release()

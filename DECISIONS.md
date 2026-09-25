@@ -24,7 +24,8 @@ Hasil sesi grilling 2026-09-25 atas `hand-vfx-camera-project-handoff.md`. Jika b
 - VB-CABLE diinstal manual oleh user saat Checkpoint 4. Jika Meet memotong SFX, matikan noise cancellation Meet.
 
 ## Kontrol (jendela preview)
-- `Space` efek on/off · `M` mute SFX · `Q`/`Esc` keluar.
+- `Space` efek on/off · `D` skeleton debug · `M` mute SFX (Checkpoint 4) · `Q`/`Esc` keluar.
+- Threshold gesture di-tuning dari pengukuran user: fist ≈ 0.32, open ≈ 1.10 → `fist_below 0.55`, `open_above 0.8`.
 
 ## Struktur kode
 Ramping: `main.py`, `tracking.py`, `gestures.py`, `orb.py`, `audio.py`, `config.yaml`, `tests/`. Pecah file hanya saat efek kedua muncul. Repo: github.com/lfarabi/meetcam (private, GPL-3.0), branch `main`.

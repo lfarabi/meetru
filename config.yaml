@@ -12,7 +12,28 @@ tracking:
 
 gesture:
   # openness = mean fingertip→palm-center distance / palm size (wrist→middle MCP)
-  fist_below: 0.9        # openness below this → FIST
-  open_above: 1.2        # openness above this → OPEN_PALM; in between keeps previous (hysteresis)
+  # measured on this setup: fist ≈ 0.32, open palm ≈ 1.10
+  fist_below: 0.55       # openness below this → FIST
+  open_above: 0.8        # openness above this → OPEN_PALM; in between keeps previous (hysteresis)
   debounce_frames: 3     # consecutive frames needed before a gesture change is accepted
   lost_frames: 5         # frames without a hand before reporting NO_HAND
+
+orb:
+  color_bgr: [255, 190, 40]   # cyan-blue; core is always white-hot
+  radius: 0.45           # orb radius in palm sizes
+  offset: 0.9            # distance from palm center toward the fingers, in palm sizes
+  glow: 1.0
+  particles: 40
+  spawn_time: 0.25       # seconds to fade in
+  fade_time: 0.4         # seconds to fade out after the hand is lost
+
+charge:
+  min_time: 0.5          # charge shorter than this never blasts
+  max_time: 3.0          # charge level saturates here
+  max_scale: 2.0         # orb size at full charge
+
+blast:
+  release_window: 0.25   # max seconds from leaving the fist to fully open for a release to count
+  confirm_frames: 2      # frames above open_above needed to fire (filters single-frame glitches)
+  duration: 0.6
+  cooldown: 1.0          # seconds after a blast before a new orb can spawn
