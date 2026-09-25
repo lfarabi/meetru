@@ -16,6 +16,7 @@ FINGERTIPS = [8, 12, 16, 20]
 PALM_POINTS = [WRIST, INDEX_MCP, MIDDLE_MCP, RING_MCP, PINKY_MCP]
 FINGERS = [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16], [17, 18, 19, 20]]
 PALM_OUTLINE = [0, 1, 2, 5, 9, 13, 17]
+CURL_POINTS = [2, 3, 4, 6, 7, 8, 10, 11, 12, 14, 15, 16, 18, 19, 20]  # thumb + finger joints and tips
 CONNECTIONS = [(0, 1), (1, 2), (2, 3), (3, 4), (0, 5), (5, 6), (6, 7), (7, 8),
                (5, 9), (9, 10), (10, 11), (11, 12), (9, 13), (13, 14), (14, 15),
                (15, 16), (13, 17), (17, 18), (18, 19), (19, 20), (0, 17)]
@@ -24,19 +25,21 @@ CONNECTIONS = [(0, 1), (1, 2), (2, 3), (3, 4), (0, 5), (5, 6), (6, 7), (7, 8),
 class Hand(NamedTuple):
     lm: np.ndarray      # (21, 3) pixels, z scaled like x
     world: np.ndarray   # (21, 3) meters around the hand center, camera axes (x right, y down, z away)
-    label: str          # MediaPipe handedness, which assumes a mirrored selfie image
 
 
-def palm_normal(world: np.ndarray, label: str, flip: bool = False) -> np.ndarray:
-    """Unit vector pointing out of the palm side, in camera axes (z < 0 means the palm faces the camera).
+def palm_normal(world: np.ndarray, prev_side: float = 1.0, min_curl: float = 0.003) -> tuple[np.ndarray, float]:
+    """Unit vector out of the palm (camera axes; z < 0 = palm faces the camera), and the side sign used.
 
-    MediaPipe labels handedness as if the image were mirrored; we feed the unmirrored frame, so its
-    "Left" is the user's actual right hand, whose index→pinky winding gives the palm-side normal.
+    The wrist/index/pinky plane gives the palm's orientation but not which face is the palm: that
+    depends on left vs right hand, and MediaPipe's handedness label flips in foreshortened poses
+    (palm up/down). Thumb and fingers always curl toward the palm, so the side they sit on picks
+    the palm face. A near-flat hand (curl < min_curl meters) keeps the previous side.
     """
     n = np.cross(world[INDEX_MCP] - world[WRIST], world[PINKY_MCP] - world[WRIST])
-    if (label == "Right") != flip:  # user's actual left hand: mirrored winding
-        n = -n
-    return n / max(float(np.linalg.norm(n)), 1e-9)
+    n /= max(float(np.linalg.norm(n)), 1e-9)
+    curl = float(np.mean((world[CURL_POINTS] - world[WRIST]) @ n))
+    side = float(np.sign(curl)) if abs(curl) >= min_curl else prev_side
+    return n * side, side
 
 
 def palm_center(lm: np.ndarray) -> np.ndarray:
@@ -88,8 +91,7 @@ class HandTracker:
             return None
         h, w = frame_bgr.shape[:2]
         return Hand(np.array([(p.x * w, p.y * h, p.z * w) for p in result.hand_landmarks[0]], dtype=np.float32),
-                    np.array([(p.x, p.y, p.z) for p in result.hand_world_landmarks[0]], dtype=np.float32),
-                    result.handedness[0][0].category_name)
+                    np.array([(p.x, p.y, p.z) for p in result.hand_world_landmarks[0]], dtype=np.float32))
 
     def close(self):
         self._landmarker.close()

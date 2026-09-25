@@ -18,13 +18,15 @@ SWOOSH_SEGMENTS = 10  # a swoosh is drawn as segments thinning from head to tail
 def orb_anchor(lm: np.ndarray, normal: np.ndarray, cfg: dict) -> tuple[tuple[float, float], float]:
     """Orb center (px) hovering off the middle of the palm along the palm normal, and its base radius (px).
 
-    Only the normal's x/y shift the image position: a palm facing the camera keeps the orb on the palm,
-    a palm facing up lifts it above the hand, facing down hangs it below.
+    Only the normal's x/y shift the image position: a palm facing up lifts the orb above the hand,
+    facing down hangs it below. Within `center_lock` of facing the camera (or away) the orb snaps to
+    the palm middle, so small tilts and depth noise don't make it slide off the palm.
     """
     wrist = lm[WRIST, :2]
     knuckles = lm[PALM_POINTS[1:], :2].mean(axis=0)
     radius = cfg["radius"] * palm_size(lm)
-    center = wrist + (knuckles - wrist) * cfg["palm_position"] + normal[:2] * cfg["hover"] * radius
+    lock = np.clip((abs(normal[2]) - cfg["center_lock"]) / (1 - cfg["center_lock"]) * 1.25, 0, 1)
+    center = wrist + (knuckles - wrist) * cfg["palm_position"] + normal[:2] * cfg["hover"] * radius * (1 - lock)
     return (float(center[0]), float(center[1])), radius
 
 

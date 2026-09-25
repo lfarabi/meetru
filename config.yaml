@@ -20,13 +20,13 @@ gesture:
 
 orb:
   color_bgr: [255, 115, 20]   # electric blue body; streaks, swooshes and core glow toward white
-  radius: 0.6            # sphere radius in palm sizes (wrist→middle MCP)
+  radius: 0.6            # sphere radius in palm lengths (wrist→middle MCP)
   palm_position: 0.5     # 0 = wrist, 1 = knuckle line; 0.5 = middle of the palm
   hover: 1.0             # orb center distance from the palm along its normal, in orb radii (1 = touching)
-  normal_smoothing: 0.3  # EMA alpha for the palm-facing direction (depth is noisier than x/y)
-  normal_flip: false     # set true if the orb appears on the back of your hand
-  occlusion_start: 0.0   # palm-normal z where the hand starts covering the orb (palm turning away)
-  occlusion_full: 0.3    # palm-normal z where the hand fully covers it
+  center_lock: 0.75      # |palm-normal z| above which the orb snaps to the palm middle (palm ~facing camera)
+  world_smoothing: 0.3   # EMA alpha for 3D landmarks used for the palm direction (depth is noisier than x/y)
+  occlusion_start: 0.65  # palm-normal z where the hand starts covering the orb (back of hand to camera)
+  occlusion_full: 0.9    # palm-normal z where the hand fully covers it
   opacity: 0.8           # how much the sphere body covers the hand behind it
   glow: 1.0
   particles: 40

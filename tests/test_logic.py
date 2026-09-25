@@ -215,24 +215,33 @@ def test_charge_loop_ramps_in_and_out_and_mute_silences():
 from orb import occlude_by_hand, orb_anchor  # noqa: E402
 from tracking import palm_normal  # noqa: E402
 
-# user's actual RIGHT hand, palm toward an unmirrored camera: thumb side (index MCP) on image right
-RIGHT_PALM_TO_CAMERA = np.zeros((21, 3), np.float32)
-RIGHT_PALM_TO_CAMERA[5] = (0.03, -0.08, 0)   # index MCP
-RIGHT_PALM_TO_CAMERA[17] = (-0.03, -0.07, 0)  # pinky MCP
+# wrist/index/pinky plane facing the camera; which face is the palm depends on where the fingers curl
+PLANE = np.zeros((21, 3), np.float32)
+PLANE[5] = (0.03, -0.08, 0)    # index MCP
+PLANE[17] = (-0.03, -0.07, 0)  # pinky MCP
+CURL_IDX = [2, 3, 4, 6, 7, 8, 10, 11, 12, 14, 15, 16, 18, 19, 20]
 
 
-def test_palm_normal_faces_camera_for_right_hand_labelled_left():
-    # MediaPipe assumes a mirrored image, so the user's right hand comes back labelled "Left"
-    assert palm_normal(RIGHT_PALM_TO_CAMERA, "Left")[2] < -0.99
+def curled(z: float) -> np.ndarray:
+    w = PLANE.copy()
+    w[CURL_IDX, 2] = z
+    return w
 
 
-def test_palm_normal_mirrors_for_the_other_hand_and_flip():
-    left_hand = RIGHT_PALM_TO_CAMERA * (-1, 1, 1)  # mirror image of the right hand
-    assert palm_normal(left_hand, "Right")[2] < -0.99
-    assert palm_normal(RIGHT_PALM_TO_CAMERA, "Left", flip=True)[2] > 0.99
+def test_palm_faces_the_side_the_fingers_curl_to():
+    n, side = palm_normal(curled(-0.01))  # fingers toward the camera: palm faces the camera
+    assert n[2] < -0.99
+    n, _ = palm_normal(curled(+0.01))     # fingers curl away: back of the hand faces the camera
+    assert n[2] > 0.99
 
 
-ORB_CFG = {**M_CFG["orb"], "hover": 1.0, "palm_position": 0.5, "radius": 0.5}
+def test_flat_hand_keeps_previous_palm_side():
+    _, side = palm_normal(curled(-0.01))
+    n, _ = palm_normal(curled(0.0005), prev_side=side)
+    assert n[2] < -0.99
+
+
+ORB_CFG = {**M_CFG["orb"], "hover": 1.0, "palm_position": 0.5, "radius": 0.5, "center_lock": 0.75}
 
 
 def test_orb_stays_on_palm_when_palm_faces_camera():
@@ -240,9 +249,15 @@ def test_orb_stays_on_palm_when_palm_faces_camera():
     assert abs(x) < 1e-3 and abs(y - (-50)) < 1e-3  # midway wrist (0) → knuckles (-100)
 
 
+def test_small_tilt_toward_camera_keeps_orb_centered():
+    tilted = np.array([0, 0.4, -0.92])
+    (x, y), r = orb_anchor(OPEN, tilted / np.linalg.norm(tilted), ORB_CFG)
+    assert abs(y - (-50)) < 0.1 * r
+
+
 def test_orb_lifts_above_palm_facing_up():
     (x, y), r = orb_anchor(OPEN, np.array([0, -1.0, 0]), ORB_CFG)
-    assert abs(y - (-50 - r)) < 1e-3
+    assert abs(r - 0.5 * 100.5) < 1 and abs(y - (-50 - r)) < 1e-3
 
 
 def test_hand_covers_orb_only_where_the_hand_is():

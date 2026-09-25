@@ -29,12 +29,9 @@ def open_camera(cfg: dict) -> cv2.VideoCapture:
 
 
 def facing(n) -> str:
-    """Readable palm direction for the debug overlay (as seen in the mirrored preview)."""
-    if abs(n[2]) > 0.6:
-        return "CAMERA" if n[2] < 0 else "AWAY"
-    if abs(n[1]) >= abs(n[0]):
-        return "UP" if n[1] < 0 else "DOWN"
-    return "LEFT" if n[0] > 0 else "RIGHT"
+    """Dominant palm direction for the debug overlay (left/right as seen in the mirrored preview)."""
+    axis = int(np.argmax(np.abs(n)))
+    return [("RIGHT", "LEFT"), ("UP", "DOWN"), ("CAMERA", "AWAY")][axis][int(n[axis] > 0)]
 
 
 def draw_skeleton(img, lm):
@@ -63,8 +60,8 @@ def main() -> int:
         log.error("Hand tracker failed to start: %s", e)
         return 1
     smoother = Smoother(cfg["tracking"]["smoothing"])
-    normal_smoother = Smoother(cfg["orb"]["normal_smoothing"])
-    normal = None
+    world_smoother = Smoother(cfg["orb"]["world_smoothing"])
+    normal, palm_side = None, 1.0
     classifier = GestureClassifier(cfg["gesture"])
     machine = OrbMachine(cfg)
     orb = EnergyOrb(cfg)
@@ -85,13 +82,12 @@ def main() -> int:
 
         hand = tracker.detect(frame, int(now * 1000))
         lm = smoother.update(hand.lm if hand else None)
-        raw_normal = palm_normal(hand.world, hand.label, cfg["orb"]["normal_flip"]) if hand else None
-        smoothed = normal_smoother.update(raw_normal)
+        world = world_smoother.update(hand.world if hand else None)
         gesture = classifier.update(lm)
         state = machine.update(gesture, classifier.openness if lm is not None else None, now)
         occlusion = 0.0
         if lm is not None:
-            normal = smoothed / max(float(np.linalg.norm(smoothed)), 1e-9)
+            normal, palm_side = palm_normal(world, palm_side)
             anchor = orb_anchor(lm, normal, cfg["orb"])
             o = cfg["orb"]
             occlusion = float(np.clip((normal[2] - o["occlusion_start"]) / (o["occlusion_full"] - o["occlusion_start"]), 0, 1))
