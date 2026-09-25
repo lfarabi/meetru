@@ -4,12 +4,13 @@ import sys
 import time
 
 import cv2
+import numpy as np
 import yaml
 
 from audio import AudioEngine
 from gestures import FIST, HIDDEN, OPEN_PALM, GestureClassifier, OrbMachine
-from orb import EnergyOrb, orb_anchor
-from tracking import CONNECTIONS, HandTracker, Smoother
+from orb import EnergyOrb, occlude_by_hand, orb_anchor
+from tracking import CONNECTIONS, HandTracker, Smoother, palm_normal
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("hand-vfx")
@@ -25,6 +26,15 @@ def open_camera(cfg: dict) -> cv2.VideoCapture:
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, cfg["height"])
     cap.set(cv2.CAP_PROP_FPS, cfg["fps"])
     return cap
+
+
+def facing(n) -> str:
+    """Readable palm direction for the debug overlay (as seen in the mirrored preview)."""
+    if abs(n[2]) > 0.6:
+        return "CAMERA" if n[2] < 0 else "AWAY"
+    if abs(n[1]) >= abs(n[0]):
+        return "UP" if n[1] < 0 else "DOWN"
+    return "LEFT" if n[0] > 0 else "RIGHT"
 
 
 def draw_skeleton(img, lm):
@@ -53,6 +63,8 @@ def main() -> int:
         log.error("Hand tracker failed to start: %s", e)
         return 1
     smoother = Smoother(cfg["tracking"]["smoothing"])
+    normal_smoother = Smoother(cfg["orb"]["normal_smoothing"])
+    normal = None
     classifier = GestureClassifier(cfg["gesture"])
     machine = OrbMachine(cfg)
     orb = EnergyOrb(cfg)
@@ -71,14 +83,23 @@ def main() -> int:
         fps = 0.9 * fps + 0.1 / max(now - last, 1e-6)
         last = now
 
-        raw = tracker.detect(frame, int(now * 1000))
-        lm = smoother.update(raw)
+        hand = tracker.detect(frame, int(now * 1000))
+        lm = smoother.update(hand.lm if hand else None)
+        raw_normal = palm_normal(hand.world, hand.label, cfg["orb"]["normal_flip"]) if hand else None
+        smoothed = normal_smoother.update(raw_normal)
         gesture = classifier.update(lm)
         state = machine.update(gesture, classifier.openness if lm is not None else None, now)
+        occlusion = 0.0
         if lm is not None:
-            anchor = orb_anchor(lm, cfg["orb"])
+            normal = smoothed / max(float(np.linalg.norm(smoothed)), 1e-9)
+            anchor = orb_anchor(lm, normal, cfg["orb"])
+            o = cfg["orb"]
+            occlusion = float(np.clip((normal[2] - o["occlusion_start"]) / (o["occlusion_full"] - o["occlusion_start"]), 0, 1))
         if effects_on and anchor is not None:
+            original = frame.copy() if occlusion > 0.01 and state != HIDDEN else None
             orb.draw(frame, machine, *anchor, now)
+            if original is not None:
+                occlude_by_hand(frame, original, lm, occlusion)
         new_audio_state = state if effects_on else HIDDEN
         audio.update(audio_state, new_audio_state, machine.charge, machine.blast_power)
         audio_state = new_audio_state
@@ -96,7 +117,7 @@ def main() -> int:
             status += "  [SFX MUTED]"
         cv2.putText(preview, status, (16, 112), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
         if lm is not None:
-            cv2.putText(preview, f"openness {classifier.openness:.2f}", (16, 142),
+            cv2.putText(preview, f"openness {classifier.openness:.2f}  palm {facing(normal)}", (16, 142),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
         cv2.imshow("Hand VFX Camera (Space effects, M mute, D skeleton, Q quit)", preview)
 

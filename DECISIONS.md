@@ -15,6 +15,9 @@ Hasil sesi grilling 2026-09-25 atas `hand-vfx-camera-project-handoff.md`. Jika b
 ## Efek
 - Energy Orb gaya Orb (sesuai gambar referensi user, dibuat prosedural karena PNG referensi berlatar checkerboard): bola biru pekat semi-solid, garis cahaya kusut berputar, inti putih, 5 sabetan sabit biru di orbit miring, percikan. Charge hingga 3 detik.
 - Posisi: **tengah telapak** = titik tengah antara wrist dan rata-rata 4 MCP (`orb.palm_position: 0.5`). Rata-rata 5 titik dari handoff terlalu condong ke buku jari.
+- **Orb 3D**: orb melayang dari tengah telapak searah normal telapak (dari world landmarks MediaPipe, dismoothing), menempel di permukaan (`hover: 1.0` radius). Telapak ke atas → orb di atas tangan; ke bawah → menggantung di bawah (tidak hilang).
+- Punggung tangan ke kamera → orb di balik tangan: siluet tangan dari landmark menutupi orb (oklusi, ±1.5 ms).
+- Normal tangan kiri/kanan dibedakan dari label handedness MediaPipe (label tertukar karena frame tidak di-mirror). `orb.normal_flip` jika orb muncul di punggung tangan.
 - **Blast = lepas kepalan** (bukan dorongan/z-depth): charge ≥0.5 s lalu buka <250 ms → ledakan, kekuatan ∝ lama charge, cooldown 1 s. Charge <0.5 s → kembali ACTIVE.
 - Semua angka di `config.yaml`.
 

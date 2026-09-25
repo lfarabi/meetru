@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 
 from gestures import BLAST, HIDDEN, OrbMachine
-from tracking import PALM_POINTS, WRIST, palm_size
+from tracking import FINGERS, MIDDLE_MCP, PALM_OUTLINE, PALM_POINTS, WRIST, palm_size
 
 BLAST_DOWNSCALE = 4   # blast glow is soft, so render it at 1/4 resolution and upscale
 ORB_EXTENT = 2.1      # render area half-size, in orb radii
@@ -15,12 +15,34 @@ N_SWOOSHES = 5        # tapered crescents orbiting outside the sphere
 SWOOSH_SEGMENTS = 10  # a swoosh is drawn as segments thinning from head to tail
 
 
-def orb_anchor(lm: np.ndarray, cfg: dict) -> tuple[tuple[float, float], float]:
-    """Orb center (px) in the middle of the palm, and its base radius (px)."""
+def orb_anchor(lm: np.ndarray, normal: np.ndarray, cfg: dict) -> tuple[tuple[float, float], float]:
+    """Orb center (px) hovering off the middle of the palm along the palm normal, and its base radius (px).
+
+    Only the normal's x/y shift the image position: a palm facing the camera keeps the orb on the palm,
+    a palm facing up lifts it above the hand, facing down hangs it below.
+    """
     wrist = lm[WRIST, :2]
     knuckles = lm[PALM_POINTS[1:], :2].mean(axis=0)
-    center = wrist + (knuckles - wrist) * cfg["palm_position"]
-    return (float(center[0]), float(center[1])), cfg["radius"] * palm_size(lm)
+    radius = cfg["radius"] * palm_size(lm)
+    center = wrist + (knuckles - wrist) * cfg["palm_position"] + normal[:2] * cfg["hover"] * radius
+    return (float(center[0]), float(center[1])), radius
+
+
+def occlude_by_hand(frame: np.ndarray, original: np.ndarray, lm: np.ndarray, strength: float):
+    """Put the hand back in front of the effect (orb behind the hand), using a silhouette from landmarks."""
+    pts = lm[:, :2].astype(np.int32)
+    thick = max(2, int(np.linalg.norm(lm[MIDDLE_MCP, :2] - lm[WRIST, :2]) * 0.28))
+    x0, y0 = np.maximum(pts.min(axis=0) - thick, 0)
+    x1, y1 = np.minimum(pts.max(axis=0) + thick + 1, (frame.shape[1], frame.shape[0]))
+    if x0 >= x1 or y0 >= y1:
+        return
+    local = pts - (x0, y0)
+    mask = np.zeros((y1 - y0, x1 - x0), np.float32)
+    cv2.fillConvexPoly(mask, cv2.convexHull(local[PALM_OUTLINE]), 1.0, cv2.LINE_AA)
+    cv2.polylines(mask, [local[f] for f in FINGERS], False, 1.0, thick, cv2.LINE_AA)
+    mask = cv2.GaussianBlur(mask, (0, 0), thick * 0.25) * strength
+    roi = frame[y0:y1, x0:x1]
+    roi[:] = cv2.blendLinear(roi, original[y0:y1, x0:x1], 1 - mask, mask)
 
 
 def _roi(frame: np.ndarray, cx: float, cy: float, half: float):

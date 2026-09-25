@@ -209,3 +209,46 @@ def test_charge_loop_ramps_in_and_out_and_mute_silences():
     for _ in range(60):
         mx.render(256)
     assert np.abs(mx.render(256)).max() < 1e-3
+
+
+# --- 3D palm normal, anchor and occlusion ------------------------------------
+from orb import occlude_by_hand, orb_anchor  # noqa: E402
+from tracking import palm_normal  # noqa: E402
+
+# user's actual RIGHT hand, palm toward an unmirrored camera: thumb side (index MCP) on image right
+RIGHT_PALM_TO_CAMERA = np.zeros((21, 3), np.float32)
+RIGHT_PALM_TO_CAMERA[5] = (0.03, -0.08, 0)   # index MCP
+RIGHT_PALM_TO_CAMERA[17] = (-0.03, -0.07, 0)  # pinky MCP
+
+
+def test_palm_normal_faces_camera_for_right_hand_labelled_left():
+    # MediaPipe assumes a mirrored image, so the user's right hand comes back labelled "Left"
+    assert palm_normal(RIGHT_PALM_TO_CAMERA, "Left")[2] < -0.99
+
+
+def test_palm_normal_mirrors_for_the_other_hand_and_flip():
+    left_hand = RIGHT_PALM_TO_CAMERA * (-1, 1, 1)  # mirror image of the right hand
+    assert palm_normal(left_hand, "Right")[2] < -0.99
+    assert palm_normal(RIGHT_PALM_TO_CAMERA, "Left", flip=True)[2] > 0.99
+
+
+ORB_CFG = {**M_CFG["orb"], "hover": 1.0, "palm_position": 0.5, "radius": 0.5}
+
+
+def test_orb_stays_on_palm_when_palm_faces_camera():
+    (x, y), r = orb_anchor(OPEN, np.array([0, 0, -1.0]), ORB_CFG)
+    assert abs(x) < 1e-3 and abs(y - (-50)) < 1e-3  # midway wrist (0) → knuckles (-100)
+
+
+def test_orb_lifts_above_palm_facing_up():
+    (x, y), r = orb_anchor(OPEN, np.array([0, -1.0, 0]), ORB_CFG)
+    assert abs(y - (-50 - r)) < 1e-3
+
+
+def test_hand_covers_orb_only_where_the_hand_is():
+    lm = hand(-2.2) + np.array([320, 400, 0], np.float32)  # wrist at (320, 400), fingers up
+    original = np.zeros((720, 1280, 3), np.uint8)
+    frame = np.full_like(original, 255)  # pretend the orb painted everything white
+    occlude_by_hand(frame, original, lm, 1.0)
+    assert frame[350, 320].max() == 0       # palm pixel restored from the original
+    assert frame[100, 1000].min() == 255    # far away: orb untouched
