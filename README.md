@@ -10,9 +10,20 @@ curl -L -o models/hand_landmarker.task https://storage.googleapis.com/mediapipe-
 ```
 
 ## Jalankan
-Klik dua kali `run.bat`, atau `.venv\Scripts\python main.py`. `Q`/`Esc` untuk keluar.
+Klik dua kali `run.bat`, atau `.venv\Scripts\python main.py`.
+
+| Tombol (di jendela preview) | Fungsi |
+|---|---|
+| `Space` | efek on/off |
+| `M` | mute SFX |
+| `D` | skeleton tangan (debug) |
+| `Q` / `Esc` | keluar |
+
+Gesture: buka telapak → orb muncul · kepal → charging (maks 3 detik, suara makin tinggi) · kepal ≥0.5 detik lalu buka cepat → blast · tangan keluar frame → orb padam.
 
 Kamera dipilih lewat `camera.device_id` di `config.yaml`. Webcam hanya bisa dipakai satu aplikasi: tutup NVIDIA Broadcast / Meet / Zoom yang memegang kamera fisik.
+
+SFX keluar ke output default Windows; ganti lewat `audio.output_device` (sebagian nama perangkat, mis. `"USB Audio CODEC"`). SFX sendiri bisa ditaruh di `assets/audio/`.
 
 ## Tes
 ```bash
