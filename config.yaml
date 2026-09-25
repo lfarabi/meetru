@@ -87,9 +87,24 @@ vanish:
 wow:
   # both open hands together under the chin, fingers up → reaction clip + sound (also exclusive)
   clip: assets/video/wow.mp4     # green-screen clip, shown full-frame as it was framed
+  placement: frame
   sound: anime-wow-sound-effect
   volume: 1.0
   hold: 0.3                      # seconds the pose must be held
+
+figure:
+  # raised fist → "Raised-fist sound!" + Figure cut out of his clip, for as long as the fist stays up
+  clip: assets/video/news_clip.mp4
+  segmenter: models/selfie_multiclass_256x256.tflite   # AI cut-out of the main person (not a green screen);
+                                 # first run takes ~20 s, then it's cached next to the video
+  sound: raised-fist-sound
+  volume: 1.0
+  hold: 0.3
+  raise_above: 0.6               # the fist (wrist) must be in the top 60% of the frame
+  while_held: true               # the clip fades out when the fist comes down
+  placement: corner
+  height: 0.8                    # of the frame height, standing on the bottom edge
+  side: left                     # as seen in your mirrored preview (the meeting sees it on the right)
 
 audio:
   enabled: true
