@@ -8,7 +8,7 @@ Hasil sesi grilling 2026-09-25 atas `hand-vfx-camera-project-handoff.md`. Jika b
 - Target meeting pertama: Google Meet di Chrome.
 
 ## Input & tracking
-- Kamera: "FHD Camera", 1280×720, MJPG, 30 FPS. NVIDIA Broadcast tidak dipakai.
+- Kamera: "FHD Camera" = DirectShow index 0 (saat NVIDIA Broadcast tertutup), 1280×720 MJPG. Terukur ±25 FPS (dibatasi kamera/pencahayaan; tracking hanya ±11 ms/frame). NVIDIA Broadcast harus ditutup karena memegang webcam.
 - Satu tangan saja pada MVP.
 - Gesture: NO_HAND / OPEN_PALM / FIST. Jarak fingertip dinormalisasi dengan ukuran telapak (wrist→middle MCP), ada hysteresis + debounce agar tidak flicker.
 
@@ -27,7 +27,7 @@ Hasil sesi grilling 2026-09-25 atas `hand-vfx-camera-project-handoff.md`. Jika b
 - `Space` efek on/off · `M` mute SFX · `Q`/`Esc` keluar.
 
 ## Struktur kode
-Ramping: `main.py`, `tracking.py`, `gestures.py`, `orb.py`, `audio.py`, `config.yaml`, `tests/`. Pecah file hanya saat efek kedua muncul. Git lokal, tanpa push.
+Ramping: `main.py`, `tracking.py`, `gestures.py`, `orb.py`, `audio.py`, `config.yaml`, `tests/`. Pecah file hanya saat efek kedua muncul. Repo: github.com/lfarabi/meetcam (private, GPL-3.0), branch `main`.
 
 ## Checkpoint (user menguji dengan tangan sendiri)
 1. Preview + skeleton + label gesture + FPS.
