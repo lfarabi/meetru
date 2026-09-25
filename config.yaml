@@ -1,0 +1,18 @@
+camera:
+  device_id: 0
+  width: 1280
+  height: 720
+  fps: 30
+
+tracking:
+  model_path: models/hand_landmarker.task
+  detection_confidence: 0.6
+  tracking_confidence: 0.5
+  smoothing: 0.35        # EMA alpha: 1.0 = raw (jittery), lower = smoother but laggier
+
+gesture:
+  # openness = mean fingertip→palm-center distance / palm size (wrist→middle MCP)
+  fist_below: 0.9        # openness below this → FIST
+  open_above: 1.2        # openness above this → OPEN_PALM; in between keeps previous (hysteresis)
+  debounce_frames: 3     # consecutive frames needed before a gesture change is accepted
+  lost_frames: 5         # frames without a hand before reporting NO_HAND
