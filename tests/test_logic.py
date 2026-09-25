@@ -359,10 +359,30 @@ def test_stop_only_touches_the_named_sound():
     assert [v[0] for v in mx._voices if not v[4]] == ["blast"]
 
 
-def test_no_finger_sound_while_orb_is_busy_until_it_is_not():
+def test_no_finger_sound_while_busy_and_the_hold_restarts_after():
     f = Fingers().show(TWO, 0.5, busy=True)
     assert f.playing() == []
-    assert f.show(TWO, DT, busy=False).playing() == ["finger_2"]
+    assert f.show(TWO, DT, busy=False).playing() == []            # busy just ended: hold starts now
+    assert f.show(TWO, 0.2, busy=False).playing() == ["finger_2"]
+
+
+def test_finger_sound_already_playing_stops_when_a_pose_takes_over():
+    f = Fingers().show(TWO, 0.3)
+    assert f.playing() == ["finger_2"]                          # one hand up alone long enough: fired
+    f.show(TWO, DT, busy=True)                                   # ...then the second hand shows up
+    assert f.playing() == []
+    f.e.mixer.render(256)
+    assert f.e.mixer._voices == []
+
+
+def test_forming_a_seal_one_hand_first_makes_no_finger_sound():
+    f = Fingers()
+    f.e.hold = 0.3                                               # the configured hold
+    f.show(TWO, 0.2)                                             # first hand up with two fingers
+    f.show(TWO, 1.0, busy=True)                                  # second hand joins: the seal
+    f.show(TWO, 0.2, busy=True)                                  # tracker drops a hand, grace still on
+    f.show(NO_HAND, 0.3)                                         # hands down
+    assert f.e.mixer._queue.qsize() == 0 and f.playing() == []
 
 
 def test_orb_sound_cuts_a_finger_sound():
@@ -817,3 +837,20 @@ def test_person_cutout_keeps_only_the_main_person_and_is_cached():
     t0 = time.perf_counter()
     load_person_clip(VIDEO, MODEL)
     assert time.perf_counter() - t0 < 5                     # second load comes from the cache
+
+
+
+def test_hold_trigger_rides_out_short_tracker_dropouts():
+    from jutsu import HoldTrigger
+
+    def run(pattern, gap):
+        trig, t, fired = HoldTrigger(0.3, gap), 0.0, 0
+        for active, seconds in pattern:
+            for _ in range(round(seconds / DT)):
+                t += DT
+                fired += trig.update(active, t)
+        return fired
+    flicker = [(True, 0.2), (False, 0.12), (True, 0.2)]       # a hand hidden for 3 frames mid-seal
+    assert run(flicker, gap=0.3) == 1                         # still one continuous hold
+    assert run(flicker, gap=0.0) == 0                         # without the gap it never completes
+    assert run([(True, 0.4), (False, 0.5), (True, 0.4)], gap=0.3) == 2   # a real let-go re-arms

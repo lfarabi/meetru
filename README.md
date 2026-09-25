@@ -43,7 +43,7 @@ finger_sfx:
   TWO: {sound: airhorn, mode: once, volume: 1.0}
 ```
 
-Semua file media di `assets/audio/` dan `assets/video/` tidak ikut di-commit (`.gitignore`); di PC lain salin ulang file-nya. Suara berbunyi selama gesture jarinya ditahan dan berhenti saat dilepas (maksimal sepanjang file-nya). Hanya satu sound effect berbunyi pada satu waktu: ganti jari (atau buka telapak / blast) langsung menghentikan suara sebelumnya. Gesture jari harus ditahan ±0.15 detik (`finger_sfx.hold`) sebelum berbunyi, dan tidak berbunyi saat orb sedang charge/blast.
+Semua file media di `assets/audio/` dan `assets/video/` tidak ikut di-commit (`.gitignore`); di PC lain salin ulang file-nya. Suara berbunyi selama gesture jarinya ditahan dan berhenti saat dilepas (maksimal sepanjang file-nya). Hanya satu sound effect berbunyi pada satu waktu: ganti jari (atau buka telapak / blast) langsung menghentikan suara sebelumnya. Gesture jari harus ditahan ±0,3 detik (`finger_sfx.hold`) sebelum berbunyi, dan tidak berbunyi saat orb sedang charge/blast atau saat pose dua tangan (segel, wow) sedang dibentuk: sampai 0,6 detik setelah dua tangan terakhir terlihat (`gesture.two_hand_grace`), satu tangan dianggap bagian dari pose, dan suara jari yang terlanjur berbunyi dihentikan.
 
 Preview menampilkan `fingers N thumb ±x.xx` untuk tuning `gesture.finger_straight` dan `gesture.thumb_out`.
 
