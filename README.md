@@ -34,12 +34,14 @@ SFX keluar ke output default Windows; ganti lewat `audio.output_device` (sebagia
 | 3 jari | synth naik + ledakan | sekali |
 | 4 jari | beat ritmis | loop selama ditahan |
 
-Mengganti suara: taruh WAV 16-bit di `assets/audio/` (mis. `airhorn.wav`), lalu di `config.yaml`:
+Mengganti suara: taruh file MP3/WAV/OGG/FLAC di `assets/audio/` (mis. `airhorn.mp3`), lalu di `config.yaml` (nama tanpa ekstensi):
 
 ```yaml
 finger_sfx:
   TWO: {sound: airhorn, mode: once, volume: 1.0}
 ```
+
+File MP3 di `assets/audio/` tidak ikut di-commit (`.gitignore`); di PC lain salin ulang file-nya. Membentuk gesture yang sama saat suaranya masih berbunyi akan memutar ulang dari awal.
 
 Preview menampilkan `fingers N thumb ±x.xx` untuk tuning `gesture.finger_straight` dan `gesture.thumb_out`.
 

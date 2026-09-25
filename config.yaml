@@ -23,13 +23,15 @@ gesture:
   thumb_out: 0.1         # above → thumb out (3+ fingers = OPEN_PALM); below → folded (4 fingers = FOUR)
 
 finger_sfx:
-  # sound = WAV name in assets/audio/ (without .wav); built-ins: finger_1..finger_4
-  # mode: once = play when the gesture is formed, loop = play while it is held
+  # sound = file name in assets/audio/ without extension (.mp3 .wav .ogg .flac)
+  #   built-in placeholders: finger_1 (beep), finger_2 (swoosh), finger_3 (rise+boom), finger_4 (beat loop)
+  # mode: once = play when the gesture is formed (re-forming restarts it), loop = play while held
+  # the downloaded MP3s are gitignored: copy them into assets/audio/ on a new machine
   cooldown: 0.3          # min seconds between replays of the same 'once' sound
-  ONE:   {sound: finger_1, mode: once, volume: 1.0}   # short click / beep
-  TWO:   {sound: finger_2, mode: once, volume: 1.0}   # swoosh
-  THREE: {sound: finger_3, mode: once, volume: 1.0}   # synth rise + explosion
-  FOUR:  {sound: finger_4, mode: loop, volume: 0.8}   # rhythm loop
+  ONE:   {sound: finger1-sound, mode: once, volume: 1.0}
+  TWO:   {sound: fahhhhhhhhhhhhhh, mode: once, volume: 1.0}
+  THREE: {sound: akh, mode: once, volume: 1.0}
+  FOUR:  {sound: extra-sound, mode: once, volume: 1.0}
 
 orb:
   color_bgr: [255, 115, 20]   # electric blue body; streaks, swooshes and core glow toward white

@@ -284,7 +284,12 @@ def test_charge_loop_ramps_in_and_out_and_mute_silences():
     assert np.abs(mx.render(256)).max() < 1e-3
 
 
-FINGER_CFG = M_CFG["finger_sfx"]
+# built-in sounds only: the user's config points at gitignored MP3s that a fresh clone won't have
+FINGER_CFG = {"cooldown": 0.3,
+              ONE: {"sound": "finger_1", "mode": "once", "volume": 1.0},
+              TWO: {"sound": "finger_2", "mode": "once", "volume": 1.0},
+              THREE: {"sound": "finger_3", "mode": "once", "volume": 1.0},
+              FOUR: {"sound": "finger_4", "mode": "loop", "volume": 0.8}}
 
 
 def engine():
@@ -320,6 +325,24 @@ def test_finger_loop_plays_while_held_and_stops_after():
     e.update_fingers(FOUR, NO_HAND, 2.0)
     drain(e, 80)
     assert drain(e) < 1e-3
+
+
+def test_restart_replaces_a_still_playing_copy():
+    mx = Mixer(SOUNDS_, A_CFG)
+    mx.play("finger_3", restart=True)
+    mx.render(256)
+    mx.play("finger_3", restart=True)
+    mx.render(256)  # old copy fades out during this block
+    mx.render(256)
+    assert [v[0] for v in mx._voices] == ["finger_3"] and mx._voices[0][2] == 512
+
+
+def test_orb_sounds_still_overlap():
+    mx = Mixer(SOUNDS_, A_CFG)
+    mx.play("blast")
+    mx.play("blast")
+    mx.render(256)
+    assert len(mx._voices) == 2
 
 
 def test_missing_custom_sound_is_dropped_not_fatal():
@@ -383,3 +406,23 @@ def test_hand_covers_orb_only_where_the_hand_is():
     occlude_by_hand(frame, original, lm, 1.0)
     assert frame[350, 320].max() == 0       # palm pixel restored from the original
     assert frame[100, 1000].min() == 255    # far away: orb untouched
+
+
+# --- sound files --------------------------------------------------------------
+import soundfile as sf  # noqa: E402
+
+import audio  # noqa: E402
+
+
+def test_mp3_is_loaded_mono_and_resampled(tmp_path):
+    tone = np.sin(2 * np.pi * 440 * np.arange(44100) / 44100).astype(np.float32) * 0.5
+    sf.write(tmp_path / "beep.mp3", np.stack([tone, tone], axis=1), 44100)  # 1 s stereo at 44.1 kHz
+    x = audio.load_sound(tmp_path / "beep.mp3", 48000)
+    assert x.ndim == 1 and abs(len(x) - 48000) < 3000 and 0.3 < np.abs(x).max() < 0.7
+
+
+def test_asset_lookup_accepts_any_supported_extension(tmp_path, monkeypatch):
+    monkeypatch.setattr(audio, "ASSET_DIR", tmp_path)
+    (tmp_path / "horn.mp3").write_bytes(b"")
+    assert audio.find_asset("horn") == tmp_path / "horn.mp3"
+    assert audio.find_asset("missing") is None

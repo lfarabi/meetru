@@ -5,16 +5,17 @@ independent of the VFX.
 """
 import logging
 import queue
-import wave
 from pathlib import Path
 
 import numpy as np
+import soundfile as sf
 
 from gestures import ACTIVE, BLAST, CHARGING, FADING, FINGER_GESTURES, HIDDEN
 
 log = logging.getLogger(__name__)
 ORB_SOUNDS = ("activation", "charge_loop", "blast", "power_down")
 ASSET_DIR = Path("assets/audio")
+AUDIO_EXTS = (".wav", ".mp3", ".ogg", ".flac")
 
 
 def _band(x: np.ndarray, lo: float, hi: float, sr: int) -> np.ndarray:
@@ -120,14 +121,15 @@ def synthesize(sr: int) -> dict[str, np.ndarray]:
             "finger_1": finger_1, "finger_2": finger_2, "finger_3": finger_3, "finger_4": finger_4}
 
 
-def load_wav(path: Path, sr: int) -> np.ndarray:
-    """Load a 16-bit PCM WAV as mono float32 at `sr` (linear resampling if needed)."""
-    with wave.open(str(path)) as w:
-        channels, width, rate = w.getnchannels(), w.getsampwidth(), w.getframerate()
-        data = w.readframes(w.getnframes())
-    if width != 2:
-        raise ValueError(f"{path}: only 16-bit PCM WAV is supported")
-    x = np.frombuffer(data, np.int16).astype(np.float32).reshape(-1, channels).mean(axis=1) / 32768
+def find_asset(name: str) -> Path | None:
+    """assets/audio/<name> with the first supported extension that exists."""
+    return next((p for ext in AUDIO_EXTS if (p := ASSET_DIR / f"{name}{ext}").exists()), None)
+
+
+def load_sound(path: Path, sr: int) -> np.ndarray:
+    """Load WAV/MP3/OGG/FLAC as mono float32 at `sr` (linear resampling if needed)."""
+    x, rate = sf.read(str(path), dtype="float32", always_2d=True)
+    x = x.mean(axis=1)
     if rate != sr:
         x = np.interp(np.arange(0, len(x), rate / sr), np.arange(len(x)), x).astype(np.float32)
     return x
@@ -159,12 +161,13 @@ class Mixer:
         self.sounds, self.cfg = sounds, cfg
         self.muted = False
         self._queue = queue.SimpleQueue()
-        self._voices = []  # [buffer, position, gain]
+        self._voices = []  # [name, buffer, position, gain, fading_out]
         # created up front so the audio thread never sees the dict change size
         self._loops = {name: _Loop(sounds[name]) for name in loops}
 
-    def play(self, name: str, gain: float = 1.0):
-        self._queue.put((name, gain))
+    def play(self, name: str, gain: float = 1.0, restart: bool = False):
+        """Start a one-shot; with `restart`, any copy of it still playing is faded out first."""
+        self._queue.put((name, gain, restart))
 
     def set_loop(self, name: str, gain: float, rate: float = 1.0):
         """Fade a loop toward `gain` (0 = stop) at playback `rate` (pitch)."""
@@ -174,13 +177,20 @@ class Mixer:
     def render(self, n: int) -> np.ndarray:
         out = np.zeros(n, np.float32)
         while not self._queue.empty():
-            name, gain = self._queue.get_nowait()
-            self._voices.append([self.sounds[name], 0, gain * self.cfg["sfx_volume"]])
+            name, gain, restart = self._queue.get_nowait()
+            if restart:
+                for v in self._voices:
+                    v[4] = v[4] or v[0] == name
+            self._voices.append([name, self.sounds[name], 0, gain * self.cfg["sfx_volume"], False])
         for v in self._voices:
-            chunk = v[0][v[1]:v[1] + n]
-            out[:len(chunk)] += chunk * v[2]
-            v[1] += n
-        self._voices = [v for v in self._voices if v[1] < len(v[0])]
+            _, buf, pos, gain, fading = v
+            chunk = buf[pos:pos + n] * gain
+            if fading:  # one-block fade instead of a hard cut, which would click
+                chunk *= np.linspace(1, 0, len(chunk), dtype=np.float32)
+                v[2] = len(buf)
+            out[:len(chunk)] += chunk
+            v[2] += n
+        self._voices = [v for v in self._voices if v[2] < len(v[1])]
 
         for lp in self._loops.values():
             if lp.target_gain <= 0 and lp.gain <= 1e-4:
@@ -206,10 +216,10 @@ class AudioEngine:
         sounds = synthesize(cfg["sample_rate"])
         wanted = set(ORB_SOUNDS) | {finger_cfg[g]["sound"] for g in FINGER_GESTURES if g in finger_cfg}
         for name in wanted:
-            path = ASSET_DIR / f"{name}.wav"
-            if path.exists():
+            path = find_asset(name)
+            if path:
                 try:
-                    sounds[name] = load_wav(path, cfg["sample_rate"])
+                    sounds[name] = load_sound(path, cfg["sample_rate"])
                     log.info("Using %s", path)
                 except Exception as e:
                     log.warning("Ignoring %s: %s", path, e)
@@ -220,7 +230,8 @@ class AudioEngine:
             if spec and spec["sound"] in sounds:
                 self.fingers[g] = spec
             elif spec:
-                log.warning("No sound %r for %s: put %s.wav in %s", spec["sound"], g, spec["sound"], ASSET_DIR)
+                log.warning("No sound %r for %s: put %s.mp3 (or .wav/.ogg/.flac) in %s",
+                            spec["sound"], g, spec["sound"], ASSET_DIR)
         loops = ("charge_loop",) + tuple({s["sound"] for s in self.fingers.values() if s["mode"] == "loop"})
         self.mixer = Mixer(sounds, cfg, loops)
         self._last_played = {}
@@ -264,7 +275,7 @@ class AudioEngine:
         spec = self.fingers.get(gesture)
         if gesture != prev and spec and spec["mode"] == "once":
             if t - self._last_played.get(gesture, float("-inf")) >= self.cooldown:
-                self.mixer.play(spec["sound"], spec["volume"])
+                self.mixer.play(spec["sound"], spec["volume"], restart=True)
                 self._last_played[gesture] = t
 
     def close(self):
