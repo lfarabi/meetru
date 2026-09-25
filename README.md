@@ -45,6 +45,14 @@ File MP3 di `assets/audio/` tidak ikut di-commit (`.gitignore`); di PC lain sali
 
 Preview menampilkan `fingers N thumb ±x.xx` untuk tuning `gesture.finger_straight` dan `gesture.thumb_out`.
 
+## Pakai di Google Meet / Zoom
+1. Tutup NVIDIA Broadcast (dan app lain yang memegang webcam).
+2. Jalankan `run.bat` **dulu**. Baris atas preview harus `VCAM ON`.
+3. Di Meet: ⋮ → Settings → Video → Camera: **OBS Virtual Camera** (Zoom: Settings → Video → Camera).
+   Jangan pilih "FHD Camera" — webcam sedang dipakai aplikasi ini.
+
+Meet me-mirror tampilan diri Anda sendiri; peserta lain melihat versi tidak ter-mirror (tulisan terbaca normal). Overlay debug (FPS, gesture) hanya ada di preview, tidak terkirim. Aplikasi OBS Studio tidak perlu dibuka; kalau OBS terbuka dengan "Start Virtual Camera" aktif, matikan dulu (preview akan menulis `VCAM OFF`).
+
 ## Tes
 ```bash
 .venv\Scripts\python -m pytest -q

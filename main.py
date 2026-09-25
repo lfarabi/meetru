@@ -5,6 +5,7 @@ import time
 
 import cv2
 import numpy as np
+import pyvirtualcam
 import yaml
 
 from audio import AudioEngine
@@ -27,6 +28,21 @@ def open_camera(cfg: dict) -> cv2.VideoCapture:
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, cfg["height"])
     cap.set(cv2.CAP_PROP_FPS, cfg["fps"])
     return cap
+
+
+def open_virtual_camera(cfg: dict, width: int, height: int, fps: int) -> pyvirtualcam.Camera | None:
+    """The output Meet/Zoom pick as a camera. Missing or busy driver → preview-only, not a crash."""
+    if not cfg["enabled"]:
+        return None
+    try:
+        cam = pyvirtualcam.Camera(width=width, height=height, fps=fps, backend=cfg["backend"],
+                                  fmt=pyvirtualcam.PixelFormat.BGR)
+    except Exception as e:
+        log.warning("Virtual camera unavailable, running preview-only: %s "
+                    "(is OBS Studio's own Start Virtual Camera active? Stop it or close OBS)", e)
+        return None
+    log.info("Virtual camera: sending %dx%d to \"%s\"; select it as the camera in Meet/Zoom", width, height, cam.device)
+    return cam
 
 
 def facing(n) -> str:
@@ -70,6 +86,7 @@ def main() -> int:
     effects_on, show_skeleton = True, False
     audio = AudioEngine(cfg["audio"], cfg["finger_sfx"])
     audio_state = HIDDEN  # state last reported to audio; forced to HIDDEN while effects are off
+    vcam = open_virtual_camera(cfg["virtual_camera"], frame.shape[1], frame.shape[0], cfg["camera"]["fps"])
 
     fps, last = 0.0, time.perf_counter()
     while True:
@@ -102,13 +119,17 @@ def main() -> int:
         audio_state = new_audio_state
         audio.update_fingers(gesture if effects_on else NO_HAND, now, machine.busy(now))
 
-        # `frame` is what will go to the meeting (unmirrored, no overlay); preview is a mirrored copy.
+        # `frame` is what goes to the meeting (unmirrored, no overlay); preview is a mirrored copy.
+        if vcam is not None and frame.shape[:2] == (vcam.height, vcam.width):
+            vcam.send(frame)
         preview = frame.copy()
         if show_skeleton and lm is not None:
             draw_skeleton(preview, lm)
         preview = cv2.flip(preview, 1)
         color = GESTURE_COLORS.get(gesture, (180, 180, 180))
-        cv2.putText(preview, f"FPS {fps:4.1f}", (16, 36), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
+        vcam_label = "VCAM ON" if vcam is not None else "VCAM OFF (preview only)"
+        cv2.putText(preview, f"FPS {fps:4.1f}  {vcam_label}", (16, 36), cv2.FONT_HERSHEY_SIMPLEX, 0.9,
+                    (255, 255, 255), 2, cv2.LINE_AA)
         cv2.putText(preview, gesture, (16, 76), cv2.FONT_HERSHEY_SIMPLEX, 1.1, color, 3, cv2.LINE_AA)
         status = f"{state}  charge {machine.charge:.0%}" if effects_on else "EFFECTS OFF"
         if audio.mixer.muted:
@@ -131,6 +152,8 @@ def main() -> int:
         if key == ord("m"):
             audio.mixer.muted = not audio.mixer.muted
 
+    if vcam is not None:
+        vcam.close()
     audio.close()
     tracker.close()
     cap.release()

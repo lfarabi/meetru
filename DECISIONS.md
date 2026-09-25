@@ -25,7 +25,7 @@ Hasil sesi grilling 2026-09-25 atas `hand-vfx-camera-project-handoff.md`. Jika b
 - Semua angka di `config.yaml`.
 
 ## Output
-- Video: `pyvirtualcam` langsung ke driver OBS Virtual Camera (aplikasi OBS tidak perlu dibuka).
+- Video: `pyvirtualcam` langsung ke driver OBS Virtual Camera (aplikasi OBS tidak perlu dibuka). Diverifikasi ujung-ke-ujung: frame dibaca kembali dari "OBS Virtual Camera" (DirectShow index 2) cocok dengan yang dikirim (selisih rata-rata 5.3, tidak ter-mirror, orb ikut, overlay tidak). Driver sibuk / tidak ada → aplikasi tetap jalan preview-only (`VCAM OFF`).
 - Video ke meeting **tidak** di-mirror; preview lokal di-mirror + overlay debug (FPS, gesture, state). Overlay tidak masuk ke meeting.
 - Audio: SFX placeholder disintesis NumPy (bisa diganti file MP3/WAV/OGG/FLAC di `assets/audio/`). SFX lokal dimajukan ke Checkpoint 2 atas permintaan user: WASAPI (±22 ms; MME ±96 ms) ke output default Windows (saat ini Speakers Realtek), bisa diganti via `audio.output_device`.
 - **SFX gesture jari** (dari gambar referensi user): 1 jari = klik/beep, 2 = swoosh, 3 = synth naik + ledakan (sekali saat gesture dibentuk, jeda ulang 0.3 s); 4 = beat loop selama ditahan. Pemetaan gesture → nama WAV / mode (`once`/`loop`) / volume di `finger_sfx` pada `config.yaml`; file di `assets/audio/`, fallback ke placeholder bawaan; nama yang tak ditemukan diabaikan dengan peringatan. Format MP3/WAV/OGG/FLAC via `soundfile`.

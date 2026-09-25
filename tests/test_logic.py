@@ -460,3 +460,18 @@ def test_asset_lookup_accepts_any_supported_extension(tmp_path, monkeypatch):
     (tmp_path / "horn.mp3").write_bytes(b"")
     assert audio.find_asset("horn") == tmp_path / "horn.mp3"
     assert audio.find_asset("missing") is None
+
+
+# --- virtual camera -------------------------------------------------------------
+import main  # noqa: E402
+
+
+def test_virtual_camera_failure_falls_back_to_preview_only(monkeypatch):
+    def busy(**kwargs):
+        raise RuntimeError("virtual camera output could not be started")
+    monkeypatch.setattr(main.pyvirtualcam, "Camera", busy)
+    assert main.open_virtual_camera({"enabled": True, "backend": "obs"}, 1280, 720, 30) is None
+
+
+def test_virtual_camera_can_be_disabled():
+    assert main.open_virtual_camera({"enabled": False, "backend": "obs"}, 1280, 720, 30) is None

@@ -4,6 +4,10 @@ camera:
   height: 720
   fps: 30
 
+virtual_camera:
+  enabled: true
+  backend: obs           # "OBS Virtual Camera" driver, installed with OBS Studio (OBS itself need not run)
+
 tracking:
   model_path: models/hand_landmarker.task
   detection_confidence: 0.6
