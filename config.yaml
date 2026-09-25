@@ -42,7 +42,11 @@ finger_sfx:
   FOUR:  {sound: guru-hentikan-guru, mode: once, volume: 1.0}
 
 orb:
-  color_bgr: [255, 115, 20]   # electric blue body; streaks, swooshes and core glow toward white
+  style: video           # video = the clip below, screen-blended; procedural = drawn in code (also the
+                         # fallback when the clip is missing: media files are not in git)
+  video: assets/video/orb.mp4   # black background, orb centered; intro, loop and size are auto-detected
+  video_scale: 1.0       # size tweak for the video orb
+  color_bgr: [255, 115, 20]   # procedural orb / blast: electric blue body; streaks and core glow toward white
   radius: 0.6            # sphere radius in palm lengths (wrist→middle MCP)
   palm_position: 0.5     # 0 = wrist, 1 = knuckle line; 0.5 = middle of the palm
   hover: 1.0             # orb center distance from the palm along its normal, in orb radii (1 = touching)

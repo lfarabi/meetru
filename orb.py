@@ -1,11 +1,15 @@
-"""Procedural Energy Orb (Orb-style) and blast, drawn with NumPy/OpenCV onto the output frame."""
+"""Energy Orb (a looping video clip, or procedural Orb-style) and blast, drawn onto the output frame."""
+import logging
 import math
+from pathlib import Path
 
 import cv2
 import numpy as np
 
 from gestures import BLAST, HIDDEN, OrbMachine
 from tracking import FINGERS, MIDDLE_MCP, PALM_OUTLINE, PALM_POINTS, WRIST, palm_size
+
+log = logging.getLogger(__name__)
 
 BLAST_DOWNSCALE = 4   # blast glow is soft, so render it at 1/4 resolution and upscale
 ORB_EXTENT = 2.1      # render area half-size, in orb radii
@@ -55,12 +59,59 @@ def _roi(frame: np.ndarray, cx: float, cy: float, half: float):
 
 
 def _screen(roi: np.ndarray, layer: np.ndarray):
-    """Screen blend (adds light without clipping to flat white) a 0..1 float layer into a uint8 ROI.
+    """Screen blend (adds light without clipping to flat white) a 0..1 float layer into a uint8 ROI."""
+    _screen_u8(roi, cv2.convertScaleAbs(layer, alpha=255))
 
-    Done in uint8 with cv2 ops: 255 - (255-a)(255-b)/255, several times faster than float NumPy.
+
+def _screen_u8(roi: np.ndarray, layer: np.ndarray):
+    """Screen blend a uint8 layer: 255 - (255-a)(255-b)/255 with cv2 ops, much faster than float NumPy."""
+    roi[:] = cv2.bitwise_not(cv2.multiply(cv2.bitwise_not(roi), cv2.bitwise_not(layer), scale=1 / 255))
+
+
+def load_video_sprite(path: Path, size: int = 320, black: int = 10):
+    """Frames of a black-background orb clip, ready to screen-blend over the hand.
+
+    Each frame is center-cropped square, shrunk to `size`, lifted off its near-black background and
+    given a round vignette so the crop edge never shows. Returns (intro, loop, fps, radius):
+    intro = the frames where the orb forms (brightness still rising), played once when it appears;
+    loop = the steady part, with its last frames crossfaded into its first so the wrap is seamless;
+    radius = the bright sphere's radius as a fraction of the sprite side.
     """
-    inv_layer = cv2.bitwise_not(cv2.convertScaleAbs(layer, alpha=255))
-    roi[:] = cv2.bitwise_not(cv2.multiply(cv2.bitwise_not(roi), inv_layer, scale=1 / 255))
+    cap = cv2.VideoCapture(str(path))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+    yy, xx = np.ogrid[:size, :size]
+    dist = np.hypot(xx - (size - 1) / 2, yy - (size - 1) / 2)
+    vignette = (np.clip((1 - dist / (size / 2)) / 0.25, 0, 1) ** 2)[..., None]
+    frames = []
+    while True:
+        ok, f = cap.read()
+        if not ok:
+            break
+        h, w = f.shape[:2]
+        s = min(h, w)
+        f = cv2.resize(f[(h - s) // 2:(h + s) // 2, (w - s) // 2:(w + s) // 2], (size, size),
+                       interpolation=cv2.INTER_AREA)
+        frames.append((cv2.subtract(f, (black, black, black, 0)) * vignette).astype(np.uint8))
+    cap.release()
+    if len(frames) < 8:
+        raise ValueError(f"could not read enough frames from {path}")
+
+    bright = np.array([f.mean() for f in frames])
+    steady = np.median(bright)
+    intro_start = int(np.argmax(bright > 0.1 * steady))  # skip leading black frames
+    loop_start = int(np.argmax(bright > 0.95 * steady))
+    loop = [f.astype(np.float32) for f in frames[loop_start:]]
+    k = min(12, len(loop) // 4)
+    for i in range(k):  # tail fades into the head; playback then starts after the head
+        a = (i + 1) / k
+        loop[len(loop) - k + i] = loop[len(loop) - k + i] * (1 - a) + loop[i] * a
+    loop = [f.astype(np.uint8) for f in loop[k:]]
+
+    lum = loop[len(loop) // 2].max(axis=2).astype(np.float64)
+    ring = dist.astype(int)
+    profile = np.bincount(ring.ravel(), lum.ravel()) / np.maximum(np.bincount(ring.ravel()), 1)
+    sphere = int(np.argmax(profile < 0.7 * profile[:5].mean()))  # where the core's glow starts to fall off
+    return frames[intro_start:loop_start], loop, fps, max(sphere, 1) / size
 
 
 class EnergyOrb:
@@ -98,6 +149,16 @@ class EnergyOrb:
         self._last_center, self._last_r = None, None
         self._blast_center, self._blast_r = None, None
 
+        self.video = None  # (intro, loop, fps, radius); None = procedural orb
+        self._phase, self._last_t = 0.0, 0.0
+        if self.o["style"] == "video":
+            path = Path(self.o["video"])
+            try:
+                self.video = load_video_sprite(path)
+                log.info("Orb video %s: %d intro + %d loop frames", path, len(self.video[0]), len(self.video[1]))
+            except Exception as e:  # media isn't in git, so a fresh clone lands here
+                log.warning("Orb video %s unavailable (%s); using the procedural orb", path, e)
+
     def draw(self, frame: np.ndarray, m: OrbMachine, center, radius: float, t: float):
         if m.state == BLAST:
             if self._prev_state != BLAST:
@@ -105,8 +166,30 @@ class EnergyOrb:
                 self._blast_r = self._last_r or radius
             self._draw_blast(frame, m)
         elif m.state != HIDDEN:
-            self._draw_orb(frame, m, center, radius, t)
+            (self._draw_video if self.video else self._draw_orb)(frame, m, center, radius, t)
         self._prev_state = m.state
+
+    def _draw_video(self, frame, m, center, radius, t):
+        intro, loop, fps, sphere = self.video
+        c = m.charge
+        r = radius * (1 + (self.charge_cfg["max_scale"] - 1) * c ** 1.5) * (0.6 + 0.4 * m.presence)
+        self._last_center, self._last_r = center, r
+        if self._prev_state == HIDDEN:  # orb (re)appears: play it forming
+            self._phase, self._last_t = 0.0, t
+        self._phase += (t - self._last_t) * fps * (1 + 1.5 * c)  # spins faster while charging
+        self._last_t = t
+        i = int(self._phase)
+        sprite = intro[i] if i < len(intro) else loop[(i - len(intro)) % len(loop)]
+
+        side = max(2, int(r / sphere * self.o["video_scale"]))
+        x0, y0 = int(round(center[0] - side / 2)), int(round(center[1] - side / 2))
+        fx0, fy0 = max(x0, 0), max(y0, 0)
+        fx1, fy1 = min(x0 + side, frame.shape[1]), min(y0 + side, frame.shape[0])
+        if fx0 >= fx1 or fy0 >= fy1:
+            return
+        sprite = cv2.resize(sprite, (side, side), interpolation=cv2.INTER_LINEAR)
+        part = sprite[fy0 - y0:fy1 - y0, fx0 - x0:fx1 - x0]
+        _screen_u8(frame[fy0:fy1, fx0:fx1], cv2.convertScaleAbs(part, alpha=m.presence * (1 + 0.2 * c)))
 
     def _draw_orb(self, frame, m, center, radius, t):
         c = m.charge

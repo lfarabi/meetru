@@ -524,3 +524,34 @@ def test_mute_silences_sfx_everywhere_but_not_the_voice():
     f.e._fifo.write(np.full(256, 0.1, np.float32))
     assert np.allclose(meeting_out(f.e)[:, 0], 0.1)
     assert not f.e.mixer.render(256).any()
+
+
+# --- video orb ------------------------------------------------------------------
+import cv2  # noqa: E402
+
+from orb import EnergyOrb, load_video_sprite  # noqa: E402
+
+
+def write_orb_clip(path, n=48, side=160, radius=40):
+    """Black clip: 8 black frames, a disc growing for 8 frames, then a steady disc (like orb.mp4)."""
+    out = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 24, (side, side))
+    for i in range(n):
+        f = np.zeros((side, side, 3), np.uint8)
+        r = 0 if i < 8 else min(radius, int(radius * (i - 7) / 8))
+        if r:
+            cv2.circle(f, (side // 2, side // 2), r, (255, 230, 200), -1)
+        out.write(f)
+    out.release()
+
+
+def test_video_sprite_finds_intro_loop_and_sphere_size(tmp_path):
+    write_orb_clip(tmp_path / "orb.mp4")
+    intro, loop, fps, sphere = load_video_sprite(tmp_path / "orb.mp4")
+    assert 4 <= len(intro) <= 10 and len(loop) >= 20 and abs(fps - 24) < 1
+    assert abs(sphere - 40 / 160) < 0.03
+    assert loop[0].shape == (320, 320, 3) and loop[0][:4, :4].max() == 0  # vignette: corners stay black
+
+
+def test_missing_orb_video_falls_back_to_procedural():
+    cfg = {**M_CFG, "orb": {**M_CFG["orb"], "style": "video", "video": "assets/video/not-there.mp4"}}
+    assert EnergyOrb(cfg).video is None
