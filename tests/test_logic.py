@@ -4,7 +4,7 @@ from gestures import (FIST, FOUR, NO_HAND, ONE, OPEN_PALM, THREE, TWO, GestureCl
                       raised_fingers, thumb_out)
 from tracking import Smoother, palm_center
 
-CFG = {"fist_below": 0.55, "open_above": 0.8, "debounce_frames": 3, "lost_frames": 5,
+CFG = {"fist_below": 0.55, "debounce_frames": 3, "lost_frames": 5,
        "finger_straight": 0.82, "thumb_out": 0.1}
 MCP_X = [-0.3, -0.1, 0.1, 0.3]
 
@@ -28,7 +28,7 @@ def test_palm_center_is_mean_of_wrist_and_mcps():
 
 def test_openness_is_scale_invariant():
     assert abs(openness(hand(-2.2, 50)) - openness(hand(-2.2, 400))) < 1e-5
-    assert openness(OPEN) > CFG["open_above"] and openness(CLOSED) < CFG["fist_below"]
+    assert openness(OPEN) > 1.0 and openness(CLOSED) < CFG["fist_below"]
 
 
 # 3D hand in meters, palm to the camera, fingers up (index on +x). Each finger raised or folded.
@@ -136,7 +136,7 @@ from gestures import ACTIVE, BLAST, CHARGING, FADING, HIDDEN, OrbMachine  # noqa
 import yaml  # noqa: E402
 
 M_CFG = yaml.safe_load(open("config.yaml", encoding="utf-8"))
-FIST_O, MID_O, OPEN_O = 0.3, 0.7, 1.1  # openness values: fist, dead zone, open
+AIM, HOLD, MID = 0.92, -0.64, 0.6  # facing: palm to camera, palm up (holding), mid-turn (between thresholds)
 DT = 0.04
 
 
@@ -144,93 +144,104 @@ class Driver:
     def __init__(self):
         self.m, self.t = OrbMachine(M_CFG), 0.0
 
-    def run(self, gesture, openness, seconds):
+    def run(self, gesture, facing, seconds):
         for _ in range(max(1, round(seconds / DT))):
             self.t += DT
-            self.m.update(gesture, openness, self.t)
+            self.m.update(gesture, facing, self.t)
         return self.m.state
 
 
-def charged(seconds):
+def held(seconds):
+    """Orb summoned facing the camera, then held palm-up for `seconds`."""
     d = Driver()
-    d.run(OPEN_PALM, OPEN_O, 0.3)
-    d.run(FIST, FIST_O, seconds)
+    d.run(OPEN_PALM, AIM, 0.3)
+    d.run(OPEN_PALM, HOLD, seconds)
     return d
 
 
 def test_open_palm_spawns_and_fades_in():
     d = Driver()
-    assert d.run(OPEN_PALM, OPEN_O, 0.1) == ACTIVE
+    assert d.run(OPEN_PALM, AIM, 0.1) == ACTIVE
     assert 0 < d.m.presence < 1
-    d.run(OPEN_PALM, OPEN_O, 0.3)
+    d.run(OPEN_PALM, AIM, 0.3)
     assert d.m.presence == 1
 
 
-def test_fist_charges_and_saturates():
-    d = charged(1.5)
+def test_facing_the_camera_does_not_charge():
+    d = Driver()
+    d.run(OPEN_PALM, AIM, 2.0)
+    assert d.m.state == ACTIVE and d.m.charge == 0
+
+
+def test_holding_palm_up_charges_and_saturates():
+    d = held(1.5)
     assert d.m.state == CHARGING and 0.4 < d.m.charge < 0.6
-    d.run(FIST, FIST_O, 3)
+    d.run(OPEN_PALM, HOLD, 3)
     assert d.m.charge == 1
 
 
-def test_short_charge_release_returns_to_active():
-    d = charged(0.3)
-    assert d.run(OPEN_PALM, OPEN_O, 0.1) == ACTIVE
-
-
-def test_quick_release_after_charge_blasts_immediately():
-    d = charged(1.0)
-    # raw openness jumps to open before the debounced gesture has caught up
-    assert d.run(FIST, OPEN_O, 2 * DT) == BLAST
+def test_aiming_at_the_camera_after_charging_blasts():
+    d = held(1.0)
+    assert d.run(OPEN_PALM, AIM, DT) == BLAST
     assert d.m.blast_power > 0.3
 
 
-def test_slow_release_does_not_blast():
-    d = charged(1.0)
-    d.run(FIST, MID_O, 0.4)  # lingering half-open longer than the release window
-    assert d.run(OPEN_PALM, OPEN_O, 0.1) == ACTIVE
+def test_aiming_too_soon_just_keeps_the_orb():
+    d = held(0.3)
+    assert d.run(OPEN_PALM, AIM, 0.2) == ACTIVE and d.m.charge == 0
 
 
-def test_single_open_glitch_does_not_blast():
-    d = charged(1.0)
-    d.run(FIST, OPEN_O, DT)
-    assert d.run(FIST, FIST_O, 0.2) == CHARGING
+def test_mid_turn_keeps_charging_without_blasting():
+    d = held(1.0)
+    assert d.run(OPEN_PALM, MID, 0.4) == CHARGING
+
+
+def test_thumb_misread_mid_turn_does_not_drop_the_charge():
+    d = held(1.0)
+    d.run(FOUR, MID, 0.2)
+    assert d.m.state == CHARGING
+    assert d.run(OPEN_PALM, AIM, DT) == BLAST
+
+
+def test_fist_extinguishes_the_orb_audibly():
+    d = held(1.0)
+    assert d.run(FIST, None, DT) == FADING and not d.m.silent_fade
 
 
 def test_blast_ends_hidden_with_cooldown_then_respawns():
-    d = charged(1.0)
-    d.run(FIST, OPEN_O, 2 * DT)
-    assert d.run(OPEN_PALM, OPEN_O, M_CFG["blast"]["duration"]) == HIDDEN
-    assert d.run(OPEN_PALM, OPEN_O, 0.2) == HIDDEN  # still cooling down
-    assert d.run(OPEN_PALM, OPEN_O, 1.0) == ACTIVE
+    d = held(1.0)
+    d.run(OPEN_PALM, AIM, DT)
+    assert d.run(OPEN_PALM, AIM, M_CFG["blast"]["duration"]) == HIDDEN
+    assert d.run(OPEN_PALM, AIM, 0.2) == HIDDEN  # still cooling down
+    assert d.run(OPEN_PALM, AIM, 1.0) == ACTIVE
 
 
 def test_hand_loss_fades_out_then_hides():
     d = Driver()
-    d.run(OPEN_PALM, OPEN_O, 0.5)
+    d.run(OPEN_PALM, AIM, 0.5)
     assert d.run(NO_HAND, None, 0.1) == FADING
     assert d.run(NO_HAND, None, 0.6) == HIDDEN
 
 
 def test_hand_returning_during_fade_revives_orb():
     d = Driver()
-    d.run(OPEN_PALM, OPEN_O, 0.5)
+    d.run(OPEN_PALM, AIM, 0.5)
     d.run(NO_HAND, None, 0.1)
-    assert d.run(OPEN_PALM, OPEN_O, DT) == ACTIVE
+    assert d.run(OPEN_PALM, AIM, DT) == ACTIVE
 
 
 def test_finger_gesture_fades_orb_silently():
     d = Driver()
-    d.run(OPEN_PALM, OPEN_O, 0.5)
-    assert d.run(TWO, 0.6, DT) == FADING and d.m.silent_fade
+    d.run(OPEN_PALM, AIM, 0.5)
+    assert d.run(TWO, AIM, DT) == FADING and d.m.silent_fade
     d = Driver()
-    d.run(OPEN_PALM, OPEN_O, 0.5)
+    d.run(OPEN_PALM, AIM, 0.5)
     d.run(NO_HAND, None, DT)
     assert not d.m.silent_fade  # losing the hand still powers down audibly
 
 
 def test_finger_gesture_does_not_spawn_orb():
-    assert Driver().run(THREE, 0.9, 0.5) == HIDDEN
+    assert Driver().run(THREE, AIM, 0.5) == HIDDEN
 
 
 # --- audio mixer --------------------------------------------------------------
@@ -524,3 +535,34 @@ def test_mute_silences_sfx_everywhere_but_not_the_voice():
     f.e._fifo.write(np.full(256, 0.1, np.float32))
     assert np.allclose(meeting_out(f.e)[:, 0], 0.1)
     assert not f.e.mixer.render(256).any()
+
+
+# --- video orb ------------------------------------------------------------------
+import cv2  # noqa: E402
+
+from orb import EnergyOrb, load_video_sprite  # noqa: E402
+
+
+def write_orb_clip(path, n=48, side=160, radius=40):
+    """Black clip: 8 black frames, a disc growing for 8 frames, then a steady disc (like orb.mp4)."""
+    out = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 24, (side, side))
+    for i in range(n):
+        f = np.zeros((side, side, 3), np.uint8)
+        r = 0 if i < 8 else min(radius, int(radius * (i - 7) / 8))
+        if r:
+            cv2.circle(f, (side // 2, side // 2), r, (255, 230, 200), -1)
+        out.write(f)
+    out.release()
+
+
+def test_video_sprite_finds_intro_loop_and_sphere_size(tmp_path):
+    write_orb_clip(tmp_path / "orb.mp4")
+    intro, loop, fps, sphere = load_video_sprite(tmp_path / "orb.mp4")
+    assert 4 <= len(intro) <= 10 and len(loop) >= 20 and abs(fps - 24) < 1
+    assert abs(sphere - 40 / 160) < 0.03
+    assert loop[0].shape == (320, 320, 3) and loop[0][:4, :4].max() == 0  # vignette: corners stay black
+
+
+def test_missing_orb_video_falls_back_to_procedural():
+    cfg = {**M_CFG, "orb": {**M_CFG["orb"], "style": "video", "video": "assets/video/not-there.mp4"}}
+    assert EnergyOrb(cfg).video is None

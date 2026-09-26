@@ -17,8 +17,7 @@ tracking:
 gesture:
   # openness = mean fingertip→palm-center distance / palm size (wrist→middle MCP)
   # measured on this setup: fist ≈ 0.32, open palm ≈ 1.10
-  fist_below: 0.55       # openness below this → FIST
-  open_above: 0.8        # openness above this → OPEN_PALM; in between keeps previous (hysteresis)
+  fist_below: 0.55       # openness below this (with no finger raised) → FIST
   debounce_frames: 3     # consecutive frames needed before a gesture change is accepted
   lost_frames: 5         # frames without a hand before reporting NO_HAND
   # finger counting (3D, rotation-free). Measured: raised fingers ≥ 0.94, folded ≤ 0.71
@@ -42,7 +41,11 @@ finger_sfx:
   FOUR:  {sound: guru-hentikan-guru, mode: once, volume: 1.0}
 
 orb:
-  color_bgr: [255, 115, 20]   # electric blue body; streaks, swooshes and core glow toward white
+  style: video           # video = the clip below, screen-blended; procedural = drawn in code (also the
+                         # fallback when the clip is missing: media files are not in git)
+  video: assets/video/orb.mp4   # black background, orb centered; intro, loop and size are auto-detected
+  video_scale: 1.0       # size tweak for the video orb
+  color_bgr: [255, 115, 20]   # procedural orb / blast: electric blue body; streaks and core glow toward white
   radius: 0.6            # sphere radius in palm lengths (wrist→middle MCP)
   palm_position: 0.5     # 0 = wrist, 1 = knuckle line; 0.5 = middle of the palm
   hover: 1.0             # orb center distance from the palm along its normal, in orb radii (1 = touching)
@@ -57,13 +60,16 @@ orb:
   fade_time: 0.4         # seconds to fade out after the hand is lost
 
 charge:
-  min_time: 0.5          # charge shorter than this never blasts
+  # charging = holding the orb with the open palm turned away from the camera (up / sideways)
+  min_time: 0.5          # hold at least this long, or aiming at the camera won't blast
   max_time: 3.0          # charge level saturates here
   max_scale: 2.0         # orb size at full charge
 
 blast:
-  release_window: 0.25   # max seconds from leaving the fist to fully open for a release to count
-  confirm_frames: 2      # frames above open_above needed to fire (filters single-frame glitches)
+  # facing = how squarely the palm faces the camera: +1 straight at it, 0 edge-on, negative turned away.
+  # Measured: palm to camera ≈ +0.92, palm up (holding) ≈ −0.64
+  aim: 0.7               # facing above this throws the orb (blast if charged long enough)
+  hold_below: 0.5        # facing below this counts as holding (charging); the gap stops flicker mid-turn
   duration: 0.6
   cooldown: 1.0          # seconds after a blast before a new orb can spawn
 
