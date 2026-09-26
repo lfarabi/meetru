@@ -7,7 +7,6 @@ Webcam hand tracking → gesture → VFX/SFX, keluaran ke OBS Virtual Camera. Ke
 py -3.12 -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
 curl -L -o models/hand_landmarker.task https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task
-curl -L -o models/selfie_multiclass_256x256.tflite https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite
 ```
 
 ## Jalankan
@@ -47,6 +46,9 @@ Semua file media di `assets/audio/` dan `assets/video/` tidak ikut di-commit (`.
 
 Preview menampilkan `fingers N thumb ±x.xx` untuk tuning `gesture.finger_straight` dan `gesture.thumb_out`.
 
+### Aturan video efek
+Semua video efek (asap, wow, Figure, dan yang baru) harus **green screen**: hijaunya dibersihkan otomatis. Video tanpa green screen **ditampilkan apa adanya**, tanpa diedit (tidak ada pemotongan latar). Pengecualian: orb `orb.mp4` berlatar hitam.
+
 ### Orb video
 Orb memakai `assets/video/orb.mp4` (`orb.video` di `config.yaml`): klip berlatar hitam dengan orb di tengah, ditempel di telapak dengan blending screen. Awal klip (orb terbentuk) diputar saat orb muncul, sisanya di-loop; ukuran bola dideteksi otomatis (`orb.video_scale` untuk menyesuaikan). Ganti klipnya cukup dengan menaruh video lain dan mengubah `orb.video`. Kalau file tidak ada, orb prosedural yang dipakai.
 
@@ -61,7 +63,7 @@ Asap green screen di-key otomatis; bagian terpadatnya diletakkan di titik segel 
 Kedua telapak terbuka, pergelangan berdempetan di bawah dagu, jari ke atas (seperti membingkai wajah); tahan ±0,3 detik → suara `anime-wow-sound-effect.mp3` + klip green screen `assets/video/wow.mp4` muncul layar penuh sesuai framing aslinya. Suaranya eksklusif seperti suara jutsu. Jangan terlalu merapatkan kedua tangan: kalau bertumpuk, MediaPipe bisa hanya melihat satu tangan.
 
 ### Kepalan terangkat → Raised-fist sound
-Angkat kepalan (pergelangan di 60% atas frame), tahan ±0,3 detik → suara `raised-fist-sound.mp3` + Figure muncul di pojok bawah (kiri di preview Anda, kanan bagi peserta), tinggi 80% frame, selama kepalan tetap terangkat (maks 9,5 detik); turunkan kepalan → Figure memudar. Klipnya `assets/video/surprise.mp4` (green screen, di-key otomatis). Untuk video biasa tanpa green screen, tambahkan `segmenter: models/selfie_multiclass_256x256.tflite` di bagian `figure` pada `config.yaml`: latarnya dihapus dengan AI segmentasi (orang utama = wajah terbesar), pertama kali ±20 detik lalu di-cache (`*.cutout.npz`).
+Angkat kepalan (pergelangan di 60% atas frame), tahan ±0,3 detik → suara `raised-fist-sound.mp3` + Figure muncul di pojok bawah (kiri di preview Anda, kanan bagi peserta), tinggi 80% frame, selama kepalan tetap terangkat (maks 9,5 detik); turunkan kepalan → Figure memudar. Klipnya `assets/video/surprise.mp4` (green screen, di-key otomatis).
 
 Dua tangan terlihat = mode pose: orb tidak muncul/charge dan SFX jari dibisukan.
 

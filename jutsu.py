@@ -83,9 +83,10 @@ class Clip(NamedTuple):
     source_width: int   # width of the (scaled) source frame, for full-frame placement
 
 
-def load_greenscreen_clip(path: Path, scale: float | None = None) -> Clip:
-    """Green-screen clip keyed to alpha and despilled, with the empty lead-in/tail and non-green
-    frames (e.g. a black last frame) dropped, cropped to where the effect ever appears.
+def load_clip(path: Path, scale: float | None = None) -> Clip:
+    """Effect clip. Green screen only: the green is keyed to alpha and despilled, the empty
+    lead-in/tail and non-green frames (e.g. a black last frame) are dropped, and it is cropped to
+    where the effect ever appears. A clip without a green screen is shown as-is, unedited.
 
     The key adapts to the clip: how green the screen is (green minus the larger of red/blue) is
     measured on the frame borders, so a dull green screen keys as cleanly as a vivid one.
@@ -111,8 +112,10 @@ def load_greenscreen_clip(path: Path, scale: float | None = None) -> Clip:
 
     key = np.percentile([np.median(np.concatenate([s[:4].ravel(), s[-4:].ravel(), s[:, :4].ravel(), s[:, -4:].ravel()]))
                          for s in map(spill_of, raw[::5])], 90)
-    if key < 40:
-        raise ValueError(f"{path} has no green screen")
+    if key < 40:  # no green screen: show the video as it is
+        log.info("%s has no green screen; showing it unedited", path)
+        opaque = np.full(raw[0].shape[:2], 255, np.uint8)
+        return _finish_clip([(f, opaque) for f in raw], fps, raw[0].shape[1], path)
 
     frames, source_width = [], raw[0].shape[1]
     for f in raw:
@@ -144,94 +147,6 @@ def _finish_clip(frames: list, fps: float, source_width: int, path) -> Clip:
     return Clip(frames, fps, peak, (float(xs.mean()), float(ys.mean())), (int(x0), int(y0)), source_width)
 
 
-FACE_SKIN = 3  # selfie_multiclass categories: 0 background, 1 hair, 2 body skin, 3 face skin, 4 clothes, 5 other
-
-
-def load_person_clip(path: Path, segmenter: Path) -> Clip:
-    """Ordinary video → only its most prominent person, background and everyone else removed.
-
-    Per frame: MediaPipe multiclass selfie segmentation gives the people; the largest face is the
-    main person (the one nearest the camera); a watershed seeded from each face splits people who
-    touch, so a bystander doesn't come along. Segmentation costs ~80 ms/frame, so the alpha is
-    cached next to the video (keyed on the video's size/mtime and the model) and reused."""
-    cap = cv2.VideoCapture(str(path))
-    fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-    raw = []
-    while True:
-        ok, f = cap.read()
-        if not ok:
-            break
-        raw.append(f)
-    cap.release()
-    if not raw:
-        raise ValueError(f"cannot read {path}")
-
-    cache = path.with_suffix(".cutout.npz")
-    stamp = f"{path.stat().st_size}-{path.stat().st_mtime_ns}-{segmenter.name}"
-    if cache.exists():
-        with np.load(cache) as z:
-            if str(z["stamp"]) == stamp and len(z["alpha"]) == len(raw):
-                return _finish_clip(_hold_through_dropouts(raw, list(z["alpha"])), fps, raw[0].shape[1], path)
-
-    import mediapipe as mp
-    from mediapipe.tasks.python import BaseOptions, vision
-    log.info("Cutting the person out of %s (first run only, ~%.0f s)...", path, len(raw) * 0.08)
-    seg = vision.ImageSegmenter.create_from_options(vision.ImageSegmenterOptions(
-        base_options=BaseOptions(model_asset_path=str(segmenter)), running_mode=vision.RunningMode.IMAGE,
-        output_confidence_masks=True, output_category_mask=False))
-    alphas, region, main_area = [], None, 0.0
-    for f in raw:
-        masks = seg.segment(mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(f, cv2.COLOR_BGR2RGB)))
-        conf = [m.numpy_view()[..., 0] for m in masks.confidence_masks]
-        person = 1 - conf[0]
-        n, lab, stats, _ = cv2.connectedComponentsWithStats((conf[FACE_SKIN] > 0.5).astype(np.uint8))
-        faces = sorted((k for k in range(1, n) if stats[k, cv2.CC_STAT_AREA] > 150),
-                       key=lambda k: -stats[k, cv2.CC_STAT_AREA])
-        # the main face is the largest, but only if it's about the size the main person's face has
-        # been: when they turn away or blur, a bystander's smaller face must not take over
-        main = faces[0] if faces and stats[faces[0], cv2.CC_STAT_AREA] >= 0.5 * main_area else None
-        if main is not None:
-            main_area = 0.8 * main_area + 0.2 * stats[main, cv2.CC_STAT_AREA] if main_area else stats[main, cv2.CC_STAT_AREA]
-            seed = lab == main
-        elif region is not None:  # no main face this frame: seed from where their body just was
-            seed = cv2.erode(region, np.ones((15, 15), np.uint8)).astype(bool)
-        else:
-            seed = None
-        if seed is not None and seed.any():
-            markers = np.zeros(person.shape, np.int32)
-            markers[person < 0.3] = 1
-            for k in faces:
-                if k != main:
-                    markers[lab == k] = 3
-            markers[seed] = 2
-            cv2.watershed(f, markers)
-            region = (markers == 2).astype(np.uint8)
-        if region is None:
-            alphas.append(np.zeros(person.shape, np.uint8))
-            continue
-        keep = cv2.GaussianBlur(cv2.dilate(region, np.ones((5, 5), np.uint8)).astype(np.float32), (0, 0), 2)
-        # firmer than the raw confidence: a white shirt against a white wall reads as only half-person
-        alphas.append((np.clip((person - 0.2) / 0.5, 0, 1) * keep * 255).astype(np.uint8))
-    seg.close()
-    np.savez_compressed(cache, alpha=np.stack(alphas), stamp=stamp)
-    return _finish_clip(_hold_through_dropouts(raw, alphas), fps, raw[0].shape[1], path)
-
-
-def _hold_through_dropouts(raw: list, alphas: list) -> list:
-    """Frames where the cut-out collapses (heavy motion blur defeats the segmenter, e.g. a sudden
-    jump) repeat the last good frame instead, so the person freezes briefly rather than blinking out.
-    ponytail: freeze-frame; a difference matte against a reconstructed empty background could keep
-    the motion if it matters."""
-    coverage = np.array([a.mean() for a in alphas])
-    floor = 0.4 * np.median(coverage)
-    out, last = [], None
-    for f, a, c in zip(raw, alphas, coverage):
-        if c >= floor or last is None:
-            last = (f, a)
-        out.append(last)
-    return out
-
-
 def draw_clip(frame: np.ndarray, clip: Clip, i: int, x0: int, y0: int, scale: float, gain: float = 1.0):
     """Alpha-blend clip frame i onto `frame`, its crop's top-left at (x0, y0), resized by `scale`;
     `gain` fades the whole clip (1 = fully shown)."""
@@ -246,10 +161,9 @@ def draw_clip(frame: np.ndarray, clip: Clip, i: int, x0: int, y0: int, scale: fl
     roi[:] = cv2.blendLinear(roi, color, 1 - alpha, alpha)
 
 
-def _load(path: str, what: str, segmenter: str | None = None) -> Clip | None:
-    """Green-screen clip, or with `segmenter` a person cut out of an ordinary video."""
+def _load(path: str, what: str) -> Clip | None:
     try:
-        clip = load_person_clip(Path(path), Path(segmenter)) if segmenter else load_greenscreen_clip(Path(path))
+        clip = load_clip(Path(path))
         log.info("%s clip %s: %d frames", what, path, len(clip.frames))
         return clip
     except Exception as e:  # media isn't in git, so a fresh clone lands here
@@ -379,14 +293,13 @@ RELEASE_FADE = 0.2  # seconds a while_held clip takes to fade out once the pose 
 class PoseClip:
     """Plays a clip once each time a pose is held.
 
-    cfg: clip, hold; optional segmenter (cut the person out of an ordinary video instead of keying
-    a green screen), while_held (stop, fading, when the pose is let go), placement "frame" (full
+    cfg: clip, hold; optional while_held (stop, fading, when the pose is let go), placement "frame" (full
     frame, as the clip was framed; default) or "corner" (standing on the bottom edge, `height` of
     the frame tall, on `side` as seen in the mirrored preview)."""
 
     def __init__(self, cfg: dict, what: str):
         self.cfg = cfg
-        self.clip = _load(cfg["clip"], what, cfg.get("segmenter"))
+        self.clip = _load(cfg["clip"], what)
         self._trigger = HoldTrigger(cfg["hold"], cfg.get("gap", 0.0))
         self._start = self._released = None
 
