@@ -98,10 +98,9 @@ wow:
   gap: 0.3                       # tracker dropouts shorter than this don't break the pose
 
 figure:
-  # raised fist → "Raised-fist sound!" + Figure cut out of his clip, for as long as the fist stays up
-  clip: assets/video/news_clip.mp4
-  segmenter: models/selfie_multiclass_256x256.tflite   # AI cut-out of the main person (not a green screen);
-                                 # first run takes ~20 s, then it's cached next to the video
+  # raised fist → "Raised-fist sound!" + Figure keyed out of his green-screen clip, while the fist stays up
+  clip: assets/video/surprise.mp4   # green screen. For an ordinary (non-green) video instead, add
+                                 # segmenter: models/selfie_multiclass_256x256.tflite (AI person cut-out)
   sound: raised-fist-sound
   volume: 1.0
   hold: 0.3
