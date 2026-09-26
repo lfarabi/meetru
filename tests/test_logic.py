@@ -589,7 +589,7 @@ def test_missing_orb_video_falls_back_to_procedural():
 
 
 # --- vanishing jutsu --------------------------------------------------------------
-from jutsu import PoseClip, Vanish, load_greenscreen_clip, seal_point, wow_pose  # noqa: E402
+from jutsu import PoseClip, Vanish, load_clip, seal_point, wow_pose  # noqa: E402
 from tracking import Hand  # noqa: E402
 
 TWO_UP_WORLD = hand3d(pick(2), False)[1]  # index + middle raised in 3D
@@ -627,7 +627,7 @@ def test_greenscreen_clip_is_keyed_trimmed_and_cropped(tmp_path):
             cv2.circle(f, (100, 90), 10 + 2 * (i - 6), (245, 245, 245), -1)
         out.write(f)
     out.release()
-    clip = load_greenscreen_clip(path)
+    clip = load_clip(path)
     frames, fps, peak, (ax, ay) = clip.frames, clip.fps, clip.peak, clip.anchor
     assert 15 <= len(frames) <= 17 and abs(fps - 30) < 1       # green lead-in and black tail dropped
     color, alpha = frames[peak]
@@ -765,7 +765,7 @@ def write_dull_green_clip(path, n=30):
 
 def test_dull_green_screen_keys_cleanly_and_keeps_its_framing(tmp_path):
     write_dull_green_clip(tmp_path / "wow.mp4")
-    clip = load_greenscreen_clip(tmp_path / "wow.mp4")
+    clip = load_clip(tmp_path / "wow.mp4")
     _, alpha = clip.frames[0]                                 # subject just rising from the bottom
     assert alpha[0, 0] < 25 and alpha[-1, alpha.shape[1] // 2] > 230   # green keyed out, subject kept
     assert clip.source_width == 160 and clip.origin[0] >= 95  # crop remembers it sat on the right
@@ -785,12 +785,7 @@ def test_pose_clip_plays_once_per_pose(tmp_path):
 
 
 # --- raised fist → Figure ---------------------------------------------------------------------
-import time  # noqa: E402
-from pathlib import Path  # noqa: E402
-
-import pytest  # noqa: E402
-
-from jutsu import load_person_clip, raised_fist  # noqa: E402
+from jutsu import raised_fist  # noqa: E402
 
 
 def test_raised_fist_needs_the_fist_up_high():
@@ -825,21 +820,6 @@ def test_while_held_clip_fades_out_when_let_go_and_sits_in_the_corner(tmp_path):
     assert not pc.busy                                      # gone ~0.2 s after letting go
 
 
-VIDEO, MODEL = Path("assets/video/news_clip.mp4"), Path("models/selfie_multiclass_256x256.tflite")
-
-
-@pytest.mark.skipif(not (VIDEO.exists() and MODEL.exists()), reason="local media / model not present")
-def test_person_cutout_keeps_only_the_main_person_and_is_cached():
-    clip = load_person_clip(VIDEO, MODEL)                   # first run segments (~20 s) and caches
-    color, alpha = clip.frames[len(clip.frames) // 2]
-    assert 0.05 < (alpha > 128).mean() < 0.8                # a person, not the whole frame
-    assert clip.origin[0] > 60                              # bystander on the far left is cut away
-    t0 = time.perf_counter()
-    load_person_clip(VIDEO, MODEL)
-    assert time.perf_counter() - t0 < 5                     # second load comes from the cache
-
-
-
 def test_hold_trigger_rides_out_short_tracker_dropouts():
     from jutsu import HoldTrigger
 
@@ -854,3 +834,41 @@ def test_hold_trigger_rides_out_short_tracker_dropouts():
     assert run(flicker, gap=0.3) == 1                         # still one continuous hold
     assert run(flicker, gap=0.0) == 0                         # without the gap it never completes
     assert run([(True, 0.4), (False, 0.5), (True, 0.4)], gap=0.3) == 2   # a real let-go re-arms
+
+
+def write_clip(path, background, n=24, subject=(245, 245, 245)):
+    """A disc growing over `background` (a BGR colour, or a function of the frame index giving a frame)."""
+    out = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 25, (320, 180))
+    for i in range(n):
+        f = background(i) if callable(background) else np.full((180, 320, 3), background, np.uint8)
+        if 4 <= i < n - 2:
+            cv2.circle(f, (160, 90), 10 + 2 * (i - 4), subject, -1)
+        out.write(f)
+    out.release()
+
+
+def test_blue_screen_is_keyed_like_green(tmp_path):
+    write_clip(tmp_path / "blue.mp4", (230, 60, 20))                       # BGR: a blue screen
+    clip = load_clip(tmp_path / "blue.mp4")
+    color, alpha = clip.frames[0]
+    h, w = alpha.shape
+    assert alpha[h // 2, w // 2] > 230 and alpha[0, 0] < 25                # subject kept, blue gone
+    assert color[h // 2, w // 2, 0] <= color[h // 2, w // 2, 2] + 5        # no blue cast left on it
+
+
+def test_black_background_is_keyed_by_distance(tmp_path):
+    write_clip(tmp_path / "black.mp4", (4, 4, 4), subject=(60, 170, 255))  # orange glow on black
+    clip = load_clip(tmp_path / "black.mp4")
+    color, alpha = clip.frames[clip.peak]
+    h, w = alpha.shape
+    assert alpha[h // 2, w // 2] > 230 and alpha[0, 0] < 25
+
+
+def test_clip_without_a_one_colour_background_is_shown_unedited(tmp_path):
+    rng = np.random.default_rng(0)
+    room = np.clip(np.linspace(40, 220, 320)[None, :, None] + rng.normal(0, 25, (180, 320, 3)), 0, 255).astype(np.uint8)
+    write_clip(tmp_path / "plain.mp4", lambda i: room.copy(), n=12)       # an ordinary video: no flat backdrop
+    clip = load_clip(tmp_path / "plain.mp4")
+    color, alpha = clip.frames[0]
+    assert len(clip.frames) == 12 and alpha.min() == 255                   # every frame, fully opaque
+    assert alpha.shape == (90, 160) and clip.origin == (0, 0)              # whole frame, not cropped or keyed

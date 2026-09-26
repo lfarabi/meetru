@@ -99,8 +99,7 @@ wow:
 
 figure:
   # raised fist → "Raised-fist sound!" + Figure keyed out of his green-screen clip, while the fist stays up
-  clip: assets/video/surprise.mp4   # green screen. For an ordinary (non-green) video instead, add
-                                 # segmenter: models/selfie_multiclass_256x256.tflite (AI person cut-out)
+  clip: assets/video/surprise.mp4   # one-colour background (keyed); a video without one is shown as-is
   sound: raised-fist-sound
   volume: 1.0
   hold: 0.3
