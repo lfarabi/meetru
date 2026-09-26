@@ -83,14 +83,18 @@ class Clip(NamedTuple):
     source_width: int   # width of the (scaled) source frame, for full-frame placement
 
 
-def load_greenscreen_clip(path: Path, scale: float = 0.5) -> Clip:
+def load_greenscreen_clip(path: Path, scale: float | None = None) -> Clip:
     """Green-screen clip keyed to alpha and despilled, with the empty lead-in/tail and non-green
     frames (e.g. a black last frame) dropped, cropped to where the effect ever appears.
 
     The key adapts to the clip: how green the screen is (green minus the larger of red/blue) is
-    measured on the frame borders, so a dull green screen keys as cleanly as a vivid one."""
+    measured on the frame borders, so a dull green screen keys as cleanly as a vivid one.
+    By default frames are shrunk to at most 400 px tall (half size for 720p): overlays are soft,
+    and a 1080p clip kept at half size would cost ~150 MB of RAM."""
     cap = cv2.VideoCapture(str(path))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    if scale is None:
+        scale = min(0.5, 400 / max(cap.get(cv2.CAP_PROP_FRAME_HEIGHT), 1))
     raw = []
     while True:
         ok, f = cap.read()
