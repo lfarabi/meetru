@@ -83,13 +83,20 @@ class Clip(NamedTuple):
     source_width: int   # width of the (scaled) source frame, for full-frame placement
 
 
-def load_clip(path: Path, scale: float | None = None) -> Clip:
-    """Effect clip. Green screen only: the green is keyed to alpha and despilled, the empty
-    lead-in/tail and non-green frames (e.g. a black last frame) are dropped, and it is cropped to
-    where the effect ever appears. A clip without a green screen is shown as-is, unedited.
+def _border(f: np.ndarray) -> np.ndarray:
+    return np.concatenate([f[:4].reshape(-1, 3), f[-4:].reshape(-1, 3), f[:, :4].reshape(-1, 3), f[:, -4:].reshape(-1, 3)])
 
-    The key adapts to the clip: how green the screen is (green minus the larger of red/blue) is
-    measured on the frame borders, so a dull green screen keys as cleanly as a vivid one.
+
+def load_clip(path: Path, scale: float | None = None) -> Clip:
+    """Effect clip on a one-colour background, keyed to alpha: the empty lead-in/tail and
+    off-background frames (e.g. a black last frame) are dropped and it is cropped to where the
+    effect ever appears. A clip without a one-colour background is shown as-is, unedited.
+
+    The background colour is read off the frame borders. A saturated one (green/blue/red screen)
+    is keyed by how much its channel dominates the other two, and that colour's spill is removed
+    from the edges; the threshold adapts, so a dull green keys as cleanly as a vivid one. A
+    neutral one (black, white, grey) is keyed by colour distance: on black, very dark parts of
+    the subject turn partly see-through, which suits glowing effects (smoke, fire, energy).
     By default frames are shrunk to at most 400 px tall (half size for 720p): overlays are soft,
     and a 1080p clip kept at half size would cost ~150 MB of RAM."""
     cap = cv2.VideoCapture(str(path))
@@ -106,26 +113,36 @@ def load_clip(path: Path, scale: float | None = None) -> Clip:
     if not raw:
         raise ValueError(f"cannot read {path}")
 
-    def spill_of(f):
-        f = f.astype(np.int16)
-        return f[..., 1] - np.maximum(f[..., 0], f[..., 2])
-
-    key = np.percentile([np.median(np.concatenate([s[:4].ravel(), s[-4:].ravel(), s[:, :4].ravel(), s[:, -4:].ravel()]))
-                         for s in map(spill_of, raw[::5])], 90)
-    if key < 40:  # no green screen: show the video as it is
-        log.info("%s has no green screen; showing it unedited", path)
-        opaque = np.full(raw[0].shape[:2], 255, np.uint8)
-        return _finish_clip([(f, opaque) for f in raw], fps, raw[0].shape[1], path)
-
+    bg = np.median(np.concatenate([_border(f) for f in raw[::5]]), axis=0)  # background BGR
+    ch = int(np.argmax(bg))
+    o1, o2 = [c for c in range(3) if c != ch]
     frames, source_width = [], raw[0].shape[1]
-    for f in raw:
-        spill = spill_of(f)
-        if (spill > 0.6 * key).mean() < 0.3:
-            continue  # not a green-screen frame
-        alpha = 255 - np.clip((spill - 0.3 * key) / (0.35 * key) * 255, 0, 255)
-        despill = f.copy()
-        despill[..., 1] = np.minimum(f[..., 1], np.maximum(f[..., 0], f[..., 2]))
-        frames.append((despill, alpha.astype(np.uint8)))
+
+    if bg[ch] - max(bg[o1], bg[o2]) > 60:  # saturated: green / blue / red screen
+        def dominance(f):
+            f = f.astype(np.int16)
+            return f[..., ch] - np.maximum(f[..., o1], f[..., o2])
+        key = np.percentile([np.median(dominance(_border(f)[None])) for f in raw[::5]], 90)
+        if key >= 40:
+            for f in raw:
+                spill = dominance(f)
+                if (spill > 0.6 * key).mean() < 0.3:
+                    continue  # not a keyed frame
+                alpha = 255 - np.clip((spill - 0.3 * key) / (0.35 * key) * 255, 0, 255)
+                despill = f.copy()
+                despill[..., ch] = np.minimum(f[..., ch], np.maximum(f[..., o1], f[..., o2]))
+                frames.append((despill, alpha.astype(np.uint8)))
+    elif np.mean([(np.linalg.norm(_border(f) - bg, axis=1) < 40).mean() for f in raw[::5]]) > 0.6:
+        for f in raw:  # neutral one-colour background (black, white, grey): key by colour distance
+            dist = np.linalg.norm(f.astype(np.float32) - bg, axis=2)
+            if (dist < 40).mean() < 0.3:
+                continue  # not a keyed frame
+            frames.append((f, np.clip((dist - 30) * (255 / 40), 0, 255).astype(np.uint8)))
+
+    if not frames:  # no one-colour background: show the video as it is
+        log.info("%s has no one-colour background; showing it unedited", path)
+        opaque = np.full(raw[0].shape[:2], 255, np.uint8)
+        frames = [(f, opaque) for f in raw]
     del raw
     return _finish_clip(frames, fps, source_width, path)
 

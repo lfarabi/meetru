@@ -836,13 +836,39 @@ def test_hold_trigger_rides_out_short_tracker_dropouts():
     assert run([(True, 0.4), (False, 0.5), (True, 0.4)], gap=0.3) == 2   # a real let-go re-arms
 
 
-def test_clip_without_green_screen_is_shown_unedited(tmp_path):
-    path = tmp_path / "plain.mp4"
+def write_clip(path, background, n=24, subject=(245, 245, 245)):
+    """A disc growing over `background` (a BGR colour, or a function of the frame index giving a frame)."""
     out = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 25, (320, 180))
-    for i in range(12):
-        out.write(np.full((180, 320, 3), (60 + 10 * i, 90, 140), np.uint8))   # an ordinary, non-green video
+    for i in range(n):
+        f = background(i) if callable(background) else np.full((180, 320, 3), background, np.uint8)
+        if 4 <= i < n - 2:
+            cv2.circle(f, (160, 90), 10 + 2 * (i - 4), subject, -1)
+        out.write(f)
     out.release()
-    clip = load_clip(path)
+
+
+def test_blue_screen_is_keyed_like_green(tmp_path):
+    write_clip(tmp_path / "blue.mp4", (230, 60, 20))                       # BGR: a blue screen
+    clip = load_clip(tmp_path / "blue.mp4")
     color, alpha = clip.frames[0]
-    assert len(clip.frames) == 12 and alpha.min() == 255                    # every frame, fully opaque
-    assert alpha.shape == (90, 160) and clip.origin == (0, 0)               # whole frame, not cropped or keyed
+    h, w = alpha.shape
+    assert alpha[h // 2, w // 2] > 230 and alpha[0, 0] < 25                # subject kept, blue gone
+    assert color[h // 2, w // 2, 0] <= color[h // 2, w // 2, 2] + 5        # no blue cast left on it
+
+
+def test_black_background_is_keyed_by_distance(tmp_path):
+    write_clip(tmp_path / "black.mp4", (4, 4, 4), subject=(60, 170, 255))  # orange glow on black
+    clip = load_clip(tmp_path / "black.mp4")
+    color, alpha = clip.frames[clip.peak]
+    h, w = alpha.shape
+    assert alpha[h // 2, w // 2] > 230 and alpha[0, 0] < 25
+
+
+def test_clip_without_a_one_colour_background_is_shown_unedited(tmp_path):
+    rng = np.random.default_rng(0)
+    room = np.clip(np.linspace(40, 220, 320)[None, :, None] + rng.normal(0, 25, (180, 320, 3)), 0, 255).astype(np.uint8)
+    write_clip(tmp_path / "plain.mp4", lambda i: room.copy(), n=12)       # an ordinary video: no flat backdrop
+    clip = load_clip(tmp_path / "plain.mp4")
+    color, alpha = clip.frames[0]
+    assert len(clip.frames) == 12 and alpha.min() == 255                   # every frame, fully opaque
+    assert alpha.shape == (90, 160) and clip.origin == (0, 0)              # whole frame, not cropped or keyed

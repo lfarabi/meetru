@@ -47,7 +47,7 @@ Semua file media di `assets/audio/` dan `assets/video/` tidak ikut di-commit (`.
 Preview menampilkan `fingers N thumb ±x.xx` untuk tuning `gesture.finger_straight` dan `gesture.thumb_out`.
 
 ### Aturan video efek
-Semua video efek (asap, wow, Figure, dan yang baru) harus **green screen**: hijaunya dibersihkan otomatis. Video tanpa green screen **ditampilkan apa adanya**, tanpa diedit (tidak ada pemotongan latar). Pengecualian: orb `orb.mp4` berlatar hitam.
+Video efek (asap, wow, Figure, dan yang baru) harus berlatar **satu warna**: green/blue screen, hitam, putih, atau warna solid lain. Latarnya dideteksi dari tepi video dan dibersihkan otomatis (latar hitam cocok untuk efek bercahaya; bagian subjek yang sangat gelap bisa agak transparan). Video tanpa latar satu warna **ditampilkan apa adanya**, tanpa diedit (tidak ada pemotongan latar dengan AI). Orb `orb.mp4` (latar hitam) memakai blending cahaya sendiri.
 
 ### Orb video
 Orb memakai `assets/video/orb.mp4` (`orb.video` di `config.yaml`): klip berlatar hitam dengan orb di tengah, ditempel di telapak dengan blending screen. Awal klip (orb terbentuk) diputar saat orb muncul, sisanya di-loop; ukuran bola dideteksi otomatis (`orb.video_scale` untuk menyesuaikan). Ganti klipnya cukup dengan menaruh video lain dan mengubah `orb.video`. Kalau file tidak ada, orb prosedural yang dipakai.
