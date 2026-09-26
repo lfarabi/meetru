@@ -7,3 +7,4 @@ assets/audio/*
 assets/video/*
 !assets/video/README.txt
 assets/background.png
+models/*.tflite

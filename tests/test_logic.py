@@ -762,3 +762,58 @@ def test_pose_clip_plays_once_per_pose(tmp_path):
     frame = np.zeros((360, 640, 3), np.uint8)
     pc.draw(frame, t)
     assert frame[:, 400:].max() > 100 and frame[:, :300].max() == 0   # full-frame, on the right as framed
+
+
+# --- raised fist → Figure ---------------------------------------------------------------------
+import time  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+import pytest  # noqa: E402
+
+from jutsu import load_person_clip, raised_fist  # noqa: E402
+
+
+def test_raised_fist_needs_the_fist_up_high():
+    lm = np.zeros((21, 3), np.float32)
+    lm[0, 1] = 300                                         # wrist 300 px down a 720 px frame
+    assert raised_fist(FIST, lm, 720, 0.6)
+    assert not raised_fist(OPEN_PALM, lm, 720, 0.6)
+    lm[0, 1] = 600                                         # fist down by the desk
+    assert not raised_fist(FIST, lm, 720, 0.6)
+    assert not raised_fist(FIST, None, 720, 0.6)
+
+
+def test_while_held_clip_fades_out_when_let_go_and_sits_in_the_corner(tmp_path):
+    write_dull_green_clip(tmp_path / "c.mp4", n=60)
+    cfg = {"clip": str(tmp_path / "c.mp4"), "hold": 0.1, "while_held": True, "placement": "corner",
+           "height": 0.8, "side": "left"}
+    pc, t = PoseClip(cfg, "Test"), 0.0
+    for _ in range(6):
+        t += DT
+        pc.update(True, t)
+    assert pc.busy
+    frame = np.zeros((360, 640, 3), np.uint8)
+    pc.draw(frame, t)
+    assert frame[-5:, -60:].max() > 100 and frame[:60, :300].max() == 0   # preview-left = output right, on the bottom
+    for _ in range(3):
+        t += DT
+        pc.update(False, t)
+    assert pc.busy                                          # still fading
+    for _ in range(4):
+        t += DT
+        pc.update(False, t)
+    assert not pc.busy                                      # gone ~0.2 s after letting go
+
+
+VIDEO, MODEL = Path("assets/video/news_clip.mp4"), Path("models/selfie_multiclass_256x256.tflite")
+
+
+@pytest.mark.skipif(not (VIDEO.exists() and MODEL.exists()), reason="local media / model not present")
+def test_person_cutout_keeps_only_the_main_person_and_is_cached():
+    clip = load_person_clip(VIDEO, MODEL)                   # first run segments (~20 s) and caches
+    color, alpha = clip.frames[len(clip.frames) // 2]
+    assert 0.05 < (alpha > 128).mean() < 0.8                # a person, not the whole frame
+    assert clip.origin[0] > 60                              # bystander on the far left is cut away
+    t0 = time.perf_counter()
+    load_person_clip(VIDEO, MODEL)
+    assert time.perf_counter() - t0 < 5                     # second load comes from the cache

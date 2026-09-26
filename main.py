@@ -10,7 +10,7 @@ import yaml
 
 from audio import AudioEngine
 from gestures import FIST, FOUR, HIDDEN, NO_HAND, ONE, OPEN_PALM, THREE, TWO, GestureClassifier, OrbMachine
-from jutsu import PoseClip, Vanish, seal_point, wow_pose
+from jutsu import PoseClip, Vanish, raised_fist, seal_point, wow_pose
 from orb import EnergyOrb, occlude_by_hand, orb_anchor
 from tracking import CONNECTIONS, WRIST, HandTracker, Smoother, palm_normal, pick_primary
 
@@ -85,12 +85,13 @@ def main() -> int:
     orb = EnergyOrb(cfg)
     anchor = None  # last known orb position/radius, kept so the orb can fade out where the hand was
     effects_on, show_skeleton = True, False
-    pose_sounds = {"jutsu": cfg["vanish"], "wow": cfg["wow"]}
+    pose_sounds = {"jutsu": cfg["vanish"], "wow": cfg["wow"], "figure": cfg["figure"]}
     audio = AudioEngine(cfg["audio"], cfg["finger_sfx"], cfg["meeting_audio"], pose_sounds)
     audio_state = HIDDEN  # state last reported to audio; forced to HIDDEN while effects are off
     vcam = open_virtual_camera(cfg["virtual_camera"], frame.shape[1], frame.shape[0], cfg["camera"]["fps"])
     vanish = Vanish(cfg["vanish"], frame.shape)
     wow = PoseClip(cfg["wow"], "Wow")
+    figure = PoseClip(cfg["figure"], "Figure")
     straight = cfg["gesture"]["finger_straight"]
 
     fps, last = 0.0, time.perf_counter()
@@ -125,6 +126,9 @@ def main() -> int:
                 audio.play_pose("jutsu")
             if wow.update(wow_pose(hands, straight), now):
                 audio.play_pose("wow")
+            fist_up = len(hands) == 1 and raised_fist(gesture, lm, frame.shape[0], cfg["figure"]["raise_above"])
+            if figure.update(fist_up, now):
+                audio.play_pose("figure")
             vanish.apply_plate(frame)
         if effects_on and anchor is not None:
             # an invisible hand doesn't cover the orb
@@ -135,12 +139,13 @@ def main() -> int:
         if effects_on:
             vanish.draw_smoke(frame, now)
             wow.draw(frame, now)
+            figure.draw(frame, now)
         new_audio_state = state if effects_on else HIDDEN
         audio.update(audio_state, new_audio_state, machine.charge, machine.blast_power, machine.silent_fade)
         audio_state = new_audio_state
         # two hands up = a seal in progress, not a finger-count gesture
         audio.update_fingers(gesture if effects_on else NO_HAND, now,
-                             machine.busy(now) or len(hands) > 1 or vanish.busy or wow.busy)
+                             machine.busy(now) or len(hands) > 1 or vanish.busy or wow.busy or figure.busy)
 
         # `frame` is what goes to the meeting (unmirrored, no overlay); preview is a mirrored copy.
         if vcam is not None and frame.shape[:2] == (vcam.height, vcam.width):

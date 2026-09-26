@@ -7,6 +7,7 @@ Webcam hand tracking → gesture → VFX/SFX, keluaran ke OBS Virtual Camera. Ke
 py -3.12 -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
 curl -L -o models/hand_landmarker.task https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task
+curl -L -o models/selfie_multiclass_256x256.tflite https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite
 ```
 
 ## Jalankan
@@ -58,6 +59,9 @@ Asap green screen di-key otomatis; bagian terpadatnya diletakkan di titik segel 
 
 ### Pose wow
 Kedua telapak terbuka, pergelangan berdempetan di bawah dagu, jari ke atas (seperti membingkai wajah); tahan ±0,3 detik → suara `anime-wow-sound-effect.mp3` + klip green screen `assets/video/wow.mp4` muncul layar penuh sesuai framing aslinya. Suaranya eksklusif seperti suara jutsu. Jangan terlalu merapatkan kedua tangan: kalau bertumpuk, MediaPipe bisa hanya melihat satu tangan.
+
+### Kepalan terangkat → Raised-fist sound
+Angkat kepalan (pergelangan di 60% atas frame), tahan ±0,3 detik → suara `raised-fist-sound.mp3` + Figure muncul di pojok bawah (kiri di preview Anda, kanan bagi peserta), tinggi 80% frame, selama kepalan tetap terangkat (maks 9,5 detik); turunkan kepalan → Figure memudar. Latar `news_clip.mp4` (video berita biasa, bukan green screen) dihapus dengan AI segmentasi (`models/selfie_multiclass_256x256.tflite`), hanya orang utama (wajah terbesar) yang disisakan. Pertama kali dijalankan butuh ±20 detik untuk memotong, lalu di-cache di `assets/video/news_clip.cutout.npz` (dibuat ulang otomatis kalau videonya diganti). Saat Figure melompat cepat (buram), potongannya dibekukan sesaat.
 
 Dua tangan terlihat = mode pose: orb tidak muncul/charge dan SFX jari dibisukan.
 
