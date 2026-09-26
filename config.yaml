@@ -21,6 +21,9 @@ gesture:
   fist_below: 0.55       # openness below this (with no finger raised) → FIST
   debounce_frames: 3     # consecutive frames needed before a gesture change is accepted
   lost_frames: 5         # frames without a hand before reporting NO_HAND
+  two_hand_grace: 0.6    # seconds after two hands were seen during which a lone hand counts as half of a
+                         # two-hand pose (crossed hands often hide one from the tracker): no finger SFX,
+                         # raised fist or orb
   # finger counting (3D, rotation-free). Measured: raised fingers ≥ 0.94, folded ≤ 0.71
   finger_straight: 0.82  # a finger counts as raised above this straightness (knuckle→tip / finger length)
   # thumb tip sideways past the index knuckle, in palm lengths. Measured: out +0.3…+0.56, folded −0.2…−0.4
@@ -33,8 +36,8 @@ finger_sfx:
   #       loop = repeat for as long as the gesture is held
   # the downloaded MP3s are gitignored: copy them into assets/audio/ on a new machine
   # only one sound effect plays at a time: a new one (finger or orb) cuts the previous one
-  hold: 0.15             # seconds a finger gesture must be held before its sound plays (filters
-                         # counts the hand passes through while opening/closing, e.g. into a blast)
+  hold: 0.3              # seconds a finger gesture must be held before its sound plays: filters counts
+                         # the hand passes through, and gives the 2nd hand of a seal time to show up
   cooldown: 0.3          # min seconds between replays of the same 'once' sound
   ONE:   {sound: finger1-sound, mode: once, volume: 1.0}
   TWO:   {sound: finger2-sound, mode: once, volume: 1.0}
@@ -80,6 +83,7 @@ vanish:
   background: assets/background.png    # empty-room photo shown instead of you; press B to capture (not in git)
   capture_delay: 5       # seconds to leave the frame after pressing B
   seal_hold: 0.3         # seconds the seal must be held
+  gap: 0.3               # tracker dropouts shorter than this (crossed hands hide one) don't break the seal
   smoke_height: 1.8      # smoke size relative to the frame height (its densest puff lands on the seal)
   sound: seal_sound   # assets/audio/<name>.mp3, played every time the seal fires; nothing else
   volume: 1.0                   # sounds (orb, blast, finger SFX, loops) until it has finished
@@ -91,6 +95,7 @@ wow:
   sound: anime-wow-sound-effect
   volume: 1.0
   hold: 0.3                      # seconds the pose must be held
+  gap: 0.3                       # tracker dropouts shorter than this don't break the pose
 
 figure:
   # raised fist → "Raised-fist sound!" + Figure cut out of his clip, for as long as the fist stays up

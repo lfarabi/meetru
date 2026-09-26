@@ -259,16 +259,21 @@ def raised_fist(gesture: str, lm: np.ndarray | None, frame_height: int, top_frac
 
 
 class HoldTrigger:
-    """Fires once when a pose has been held `hold` seconds; re-arms only after the pose is let go."""
+    """Fires once when a pose has been held `hold` seconds; re-arms only after the pose is let go.
 
-    def __init__(self, hold: float):
-        self.hold = hold
-        self._since, self._armed = None, True
+    Gaps shorter than `gap` don't count as letting go: with crossed or touching hands the tracker
+    often loses one hand for a few frames, which shouldn't restart the hold."""
+
+    def __init__(self, hold: float, gap: float = 0.0):
+        self.hold, self.gap = hold, gap
+        self._since, self._armed, self._seen = None, True, None
 
     def update(self, active: bool, t: float, allowed: bool = True) -> bool:
         if not active:
-            self._since, self._armed = None, True
+            if self._seen is None or t - self._seen > self.gap:
+                self._since, self._armed = None, True
             return False
+        self._seen = t
         self._since = t if self._since is None else self._since
         if self._armed and allowed and t - self._since >= self.hold:
             self._armed = False
@@ -293,7 +298,7 @@ class Vanish:
         if plate_path.exists():
             self.plate = cv2.resize(cv2.imread(str(plate_path)), (frame_shape[1], frame_shape[0]))
         self.clip = _load(cfg["smoke"], "Smoke")
-        self._trigger = HoldTrigger(cfg["seal_hold"])
+        self._trigger = HoldTrigger(cfg["seal_hold"], cfg.get("gap", 0.0))
         self._start, self._at, self._from, self._to = None, None, 0.0, 0.0
         self._capture_at, self._captured = None, []
 
@@ -378,7 +383,7 @@ class PoseClip:
     def __init__(self, cfg: dict, what: str):
         self.cfg = cfg
         self.clip = _load(cfg["clip"], what, cfg.get("segmenter"))
-        self._trigger = HoldTrigger(cfg["hold"])
+        self._trigger = HoldTrigger(cfg["hold"], cfg.get("gap", 0.0))
         self._start = self._released = None
 
     @property

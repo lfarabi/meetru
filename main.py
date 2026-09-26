@@ -93,6 +93,7 @@ def main() -> int:
     wow = PoseClip(cfg["wow"], "Wow")
     figure = PoseClip(cfg["figure"], "Figure")
     straight = cfg["gesture"]["finger_straight"]
+    two_hands_at = float("-inf")  # last time two hands were seen
 
     fps, last = 0.0, time.perf_counter()
     while True:
@@ -112,9 +113,13 @@ def main() -> int:
         occlusion = 0.0
         if lm is not None:
             normal, palm_side = palm_normal(world, palm_side)
-        # the orb is a one-hand effect: two hands up (a seal, the wow pose) or a jutsu in progress
-        # must not summon or charge it
-        orb_gesture = NO_HAND if vanish.busy or len(hands) > 1 else gesture
+        # Two hands up = a two-hand pose (seal, wow) forming or held. While crossed or touching,
+        # MediaPipe often loses one hand for a few frames, so "two hands" lingers for a grace
+        # period: the lone hand seen then is half of a pose, not a finger count, fist or orb.
+        if len(hands) > 1:
+            two_hands_at = now
+        two_hands = now - two_hands_at < cfg["gesture"]["two_hand_grace"]
+        orb_gesture = NO_HAND if vanish.busy or two_hands else gesture
         state = machine.update(orb_gesture, -float(normal[2]) if lm is not None else None, now)  # palm-to-camera
         if lm is not None:
             anchor = orb_anchor(lm, normal, cfg["orb"])
@@ -126,7 +131,7 @@ def main() -> int:
                 audio.play_pose("jutsu")
             if wow.update(wow_pose(hands, straight), now):
                 audio.play_pose("wow")
-            fist_up = len(hands) == 1 and raised_fist(gesture, lm, frame.shape[0], cfg["figure"]["raise_above"])
+            fist_up = not two_hands and raised_fist(gesture, lm, frame.shape[0], cfg["figure"]["raise_above"])
             if figure.update(fist_up, now):
                 audio.play_pose("figure")
             vanish.apply_plate(frame)
@@ -145,7 +150,7 @@ def main() -> int:
         audio_state = new_audio_state
         # two hands up = a seal in progress, not a finger-count gesture
         audio.update_fingers(gesture if effects_on else NO_HAND, now,
-                             machine.busy(now) or len(hands) > 1 or vanish.busy or wow.busy or figure.busy)
+                             machine.busy(now) or two_hands or vanish.busy or wow.busy or figure.busy)
 
         # `frame` is what goes to the meeting (unmirrored, no overlay); preview is a mirrored copy.
         if vcam is not None and frame.shape[:2] == (vcam.height, vcam.width):

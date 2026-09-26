@@ -396,21 +396,26 @@ class AudioEngine:
         gain = (0.5 + 0.5 * charge) * self.cfg["charge_volume"] if state == CHARGING else 0.0
         self._set_loop("charge_loop", gain, 1.0 + 0.8 * charge)  # pitch rises with charge
 
-    def update_fingers(self, gesture: str, t: float, orb_busy: bool = False):
+    def update_fingers(self, gesture: str, t: float, busy: bool = False):
         """Finger-count SFX; call once per frame.
 
         A finger gesture must be held for `hold` seconds first, so the counts the hand passes through
-        while opening or closing (e.g. releasing a fist into a blast) don't fire. Nothing fires while
-        the orb is charging or blasting. 'once' plays through once when the hold is reached
-        (rate-limited per gesture) and stops early if the gesture is let go; 'loop' repeats for as
-        long as the gesture is held.
+        while opening or closing (e.g. releasing a fist into a blast) don't fire. `busy` (orb
+        charging/blasting, a two-hand pose forming or recently seen, a pose clip playing) means the
+        finger count is part of something else: nothing fires, a finger sound that already started
+        was a misfire and stops, and the hold only starts counting once busy ends. 'once' plays
+        through once (rate-limited per gesture) and stops early if the gesture is let go; 'loop'
+        repeats for as long as the gesture is held.
         """
+        current = self.fingers.get(self._gesture)
+        if gesture != self._gesture or busy:
+            if self._fired and current and current["mode"] == "once":
+                self._stop(current["sound"])  # let go of, or overtaken by a pose: the sound stops
         if gesture != self._gesture:
-            released = self.fingers.get(self._gesture)
-            if self._fired and released and released["mode"] == "once":
-                self._stop(released["sound"])  # gesture let go: its sound stops with it
             self._gesture, self._since, self._fired = gesture, t, False
-        settled = t - self._since >= self.hold and not orb_busy
+        if busy:
+            self._since = t
+        settled = t - self._since >= self.hold and not busy
         for g, spec in self.fingers.items():
             if spec["mode"] == "loop":
                 self._set_loop(spec["sound"], spec["volume"] if gesture == g and settled else 0.0)
