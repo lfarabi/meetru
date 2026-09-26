@@ -566,3 +566,140 @@ def test_video_sprite_finds_intro_loop_and_sphere_size(tmp_path):
 def test_missing_orb_video_falls_back_to_procedural():
     cfg = {**M_CFG, "orb": {**M_CFG["orb"], "style": "video", "video": "assets/video/not-there.mp4"}}
     assert EnergyOrb(cfg).video is None
+
+
+# --- vanishing jutsu --------------------------------------------------------------
+from jutsu import Vanish, load_greenscreen_clip, seal_point  # noqa: E402
+from tracking import Hand  # noqa: E402
+
+TWO_UP_WORLD = hand3d(pick(2), False)[1]  # index + middle raised in 3D
+
+
+def two_finger_hand(base_a, base_b, tip_a, tip_b):
+    lm = np.zeros((21, 3), np.float32)
+    lm[5, :2], lm[9, :2], lm[8, :2], lm[12, :2] = base_a, base_b, tip_a, tip_b
+    return Hand(lm, TWO_UP_WORLD)
+
+
+VERTICAL = two_finger_hand((600, 400), (620, 400), (600, 300), (620, 300))       # fingers pointing up
+HORIZONTAL = two_finger_hand((700, 350), (700, 370), (560, 350), (560, 370))     # pointing sideways, across them
+
+
+def test_crossed_two_finger_hands_make_the_seal():
+    p = seal_point([VERTICAL, HORIZONTAL], 0.82)
+    assert p is not None and 580 < p[0] < 660 and 330 < p[1] < 380
+
+
+def test_parallel_or_apart_hands_are_not_the_seal():
+    parallel = two_finger_hand((700, 400), (720, 400), (700, 300), (720, 300))
+    far = two_finger_hand((1200, 650), (1200, 670), (1060, 650), (1060, 670))
+    assert seal_point([VERTICAL, parallel], 0.82) is None
+    assert seal_point([VERTICAL, far], 0.82) is None
+    assert seal_point([VERTICAL], 0.82) is None
+
+
+def test_greenscreen_clip_is_keyed_trimmed_and_cropped(tmp_path):
+    path = tmp_path / "smoke.mp4"
+    out = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 30, (320, 180))
+    for i in range(24):
+        f = np.zeros((180, 320, 3), np.uint8) if i == 23 else np.full((180, 320, 3), (35, 216, 1), np.uint8)
+        if 6 <= i < 23:
+            cv2.circle(f, (100, 90), 10 + 2 * (i - 6), (245, 245, 245), -1)
+        out.write(f)
+    out.release()
+    frames, fps, peak, (ax, ay) = load_greenscreen_clip(path)
+    assert 15 <= len(frames) <= 17 and abs(fps - 30) < 1       # green lead-in and black tail dropped
+    color, alpha = frames[peak]
+    h, w = alpha.shape
+    assert alpha[h // 2, w // 2] > 0.9 and alpha[0, 0] < 0.1     # smoke opaque, green gone
+    assert color[h // 2, w // 2, 1] <= color[h // 2, w // 2, 2] + 5  # despilled: no green cast
+    assert abs(ax - w / 2) < 3 and abs(ay - h / 2) < 3             # densest part = the disc's center
+
+
+def vanish_cfg(tmp_path):
+    return {"smoke": str(tmp_path / "none.mp4"), "background": str(tmp_path / "bg.png"),
+            "capture_delay": 1, "seal_hold": 0.3, "smoke_height": 1.3}
+
+
+def hold_seal(v, t0, seconds, seal=(640, 360)):
+    t = t0
+    for _ in range(round(seconds / DT)):
+        t += DT
+        v.update(np.array(seal, np.float32) if seal else None, t)
+    return t
+
+
+def test_without_a_background_the_seal_explains_instead_of_vanishing(tmp_path):
+    v = Vanish(vanish_cfg(tmp_path), (720, 1280, 3))
+    t = hold_seal(v, 0, 1.0)
+    assert v.mix == 0 and "press B" in v.message(t)
+
+
+def test_capture_then_seal_vanishes_and_seal_again_returns(tmp_path):
+    v = Vanish(vanish_cfg(tmp_path), (720, 1280, 3))
+    room = np.full((720, 1280, 3), 90, np.uint8)
+    v.start_capture(0.0)
+    t = 0.0
+    for _ in range(60):
+        t += DT
+        v.capture_tick(room, t)
+    assert v.plate is not None and (tmp_path / "bg.png").exists()
+    t = hold_seal(v, t, 1.0)
+    assert v.mix == 1                        # gone
+    t = hold_seal(v, t, 1.0)
+    assert v.mix == 1                        # still holding the same seal: no flip-flop
+    t = hold_seal(v, t, 0.2, seal=None)      # let go
+    t = hold_seal(v, t, 1.0)
+    assert v.mix == 0                        # back
+    frame = np.zeros((720, 1280, 3), np.uint8)
+    v.mix = 1
+    v.apply_plate(frame)
+    assert frame.mean() == 90                # the empty room replaces the camera image
+
+
+def test_primary_hand_follows_the_same_hand_not_the_list_order():
+    from tracking import pick_primary
+    small, big = Hand(OPEN * 0.5 + 100, TWO_UP_WORLD), Hand(OPEN + 600, TWO_UP_WORLD)
+    assert pick_primary([small, big], None) is big                          # nothing tracked yet: largest
+    assert pick_primary([big, small], small.lm[0, :2] + 3) is small         # then whichever continues
+    assert pick_primary([], None) is None
+
+
+# --- jutsu sound ---------------------------------------------------------------------
+def test_exclusive_sound_cannot_be_interrupted_and_silences_loops():
+    mx = Mixer(SOUNDS_, A_CFG)
+    mx.set_loop("charge_loop", 1.0)
+    for _ in range(20):
+        mx.render(256)                       # charge hum is running
+    mx.play("finger_1", exclusive=True)      # the jutsu sound (a short beep stands in for it)
+    mx.render(256)
+    mx.play("blast")                         # orb / finger sounds while it plays...
+    mx.play("finger_2")
+    mx.render(256)
+    assert [v[0] for v in mx._voices if not v[4]] == ["finger_1"]   # ...are dropped
+    for _ in range(len(SOUNDS_["finger_1"]) // 256 + 2):
+        out = mx.render(256)
+    assert not mx._voices
+    first_loop_block = np.abs(mx.render(256)).max()
+    assert first_loop_block < 0.2                                    # hum returns ramping up, no click
+    mx.play("blast")
+    mx.render(256)
+    assert [v[0] for v in mx._voices if not v[4]] == ["blast"]      # normal again afterwards
+
+
+def test_seal_fires_its_sound_once_per_seal(tmp_path):
+    v = Vanish(vanish_cfg(tmp_path), (720, 1280, 3))
+    fired, t = 0, 0.0
+    for seal in [True] * 40 + [False] * 5 + [True] * 40:
+        t += DT
+        fired += v.update(np.array([640.0, 360.0]) if seal else None, t)
+    assert fired == 2
+
+
+def test_jutsu_sound_is_optional():
+    ok = AudioEngine({**A_CFG, "enabled": False}, FINGER_CFG, None, {"sound": "finger_3", "volume": 1.0})
+    ok.play_jutsu()
+    assert ok.mixer._queue.qsize() == 1
+    missing = AudioEngine({**A_CFG, "enabled": False}, FINGER_CFG, None, {"sound": "nope", "volume": 1.0})
+    missing.play_jutsu()                     # no file: silently nothing, no crash
+    assert missing.mixer._queue.qsize() == 0

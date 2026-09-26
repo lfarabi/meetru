@@ -13,6 +13,7 @@ tracking:
   detection_confidence: 0.6
   tracking_confidence: 0.5
   smoothing: 0.35        # EMA alpha: 1.0 = raw (jittery), lower = smoother but laggier
+  max_hands: 2           # 2 for the vanishing seal; the orb and finger SFX follow one hand
 
 gesture:
   # openness = mean fingertip→palm-center distance / palm size (wrist→middle MCP)
@@ -72,6 +73,16 @@ blast:
   hold_below: 0.5        # facing below this counts as holding (charging); the gap stops flicker mid-turn
   duration: 0.6
   cooldown: 1.0          # seconds after a blast before a new orb can spawn
+
+vanish:
+  # seal seal (both hands, two fingers each, crossed) → smoke puff → you vanish; seal again → back.
+  smoke: assets/video/smoke.mp4        # green-screen smoke clip (keyed automatically)
+  background: assets/background.png    # empty-room photo shown instead of you; press B to capture (not in git)
+  capture_delay: 5       # seconds to leave the frame after pressing B
+  seal_hold: 0.3         # seconds the seal must be held
+  smoke_height: 1.8      # smoke size relative to the frame height (its densest puff lands on the seal)
+  sound: seal_sound   # assets/audio/<name>.mp3, played every time the seal fires; nothing else
+  volume: 1.0                   # sounds (orb, blast, finger SFX, loops) until it has finished
 
 audio:
   enabled: true

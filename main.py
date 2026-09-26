@@ -1,4 +1,4 @@
-"""Hand VFX Camera: webcam → hand tracking → gesture → Energy Orb, with a mirrored debug preview."""
+"""Hand VFX Camera: webcam → hand tracking → gesture → Energy Orb / vanishing jutsu, with a mirrored debug preview."""
 import logging
 import sys
 import time
@@ -10,8 +10,9 @@ import yaml
 
 from audio import AudioEngine
 from gestures import FIST, FOUR, HIDDEN, NO_HAND, ONE, OPEN_PALM, THREE, TWO, GestureClassifier, OrbMachine
+from jutsu import Vanish, seal_point
 from orb import EnergyOrb, occlude_by_hand, orb_anchor
-from tracking import CONNECTIONS, HandTracker, Smoother, palm_normal
+from tracking import CONNECTIONS, WRIST, HandTracker, Smoother, palm_normal, pick_primary
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("hand-vfx")
@@ -84,9 +85,10 @@ def main() -> int:
     orb = EnergyOrb(cfg)
     anchor = None  # last known orb position/radius, kept so the orb can fade out where the hand was
     effects_on, show_skeleton = True, False
-    audio = AudioEngine(cfg["audio"], cfg["finger_sfx"], cfg["meeting_audio"])
+    audio = AudioEngine(cfg["audio"], cfg["finger_sfx"], cfg["meeting_audio"], cfg["vanish"])
     audio_state = HIDDEN  # state last reported to audio; forced to HIDDEN while effects are off
     vcam = open_virtual_camera(cfg["virtual_camera"], frame.shape[1], frame.shape[0], cfg["camera"]["fps"])
+    vanish = Vanish(cfg["vanish"], frame.shape)
 
     fps, last = 0.0, time.perf_counter()
     while True:
@@ -98,27 +100,40 @@ def main() -> int:
         fps = 0.9 * fps + 0.1 / max(now - last, 1e-6)
         last = now
 
-        hand = tracker.detect(frame, int(now * 1000))
+        hands = tracker.detect(frame, int(now * 1000))
+        hand = pick_primary(hands, None if smoother.value is None else smoother.value[WRIST, :2])
         lm = smoother.update(hand.lm if hand else None)
         world = world_smoother.update(hand.world if hand else None)
         gesture = classifier.update(lm, world)
         occlusion = 0.0
         if lm is not None:
             normal, palm_side = palm_normal(world, palm_side)
-        state = machine.update(gesture, -float(normal[2]) if lm is not None else None, now)  # palm-to-camera
+        # during the jutsu the hands are busy with the seal: no orb gestures
+        orb_gesture = NO_HAND if vanish.busy else gesture
+        state = machine.update(orb_gesture, -float(normal[2]) if lm is not None else None, now)  # palm-to-camera
         if lm is not None:
             anchor = orb_anchor(lm, normal, cfg["orb"])
             o = cfg["orb"]
             occlusion = float(np.clip((normal[2] - o["occlusion_start"]) / (o["occlusion_full"] - o["occlusion_start"]), 0, 1))
+        vanish.capture_tick(frame, now)  # raw camera frame, before any effect
+        if effects_on:
+            if vanish.update(seal_point(hands, cfg["gesture"]["finger_straight"]), now):
+                audio.play_jutsu()
+            vanish.apply_plate(frame)
         if effects_on and anchor is not None:
-            original = frame.copy() if occlusion > 0.01 and state != HIDDEN else None
+            # an invisible hand doesn't cover the orb
+            original = frame.copy() if occlusion > 0.01 and state != HIDDEN and vanish.mix < 0.5 else None
             orb.draw(frame, machine, *anchor, now)
             if original is not None:
                 occlude_by_hand(frame, original, lm, occlusion)
+        if effects_on:
+            vanish.draw_smoke(frame, now)
         new_audio_state = state if effects_on else HIDDEN
         audio.update(audio_state, new_audio_state, machine.charge, machine.blast_power, machine.silent_fade)
         audio_state = new_audio_state
-        audio.update_fingers(gesture if effects_on else NO_HAND, now, machine.busy(now))
+        # two hands up = a seal in progress, not a finger-count gesture
+        audio.update_fingers(gesture if effects_on else NO_HAND, now,
+                             machine.busy(now) or len(hands) > 1 or vanish.busy)
 
         # `frame` is what goes to the meeting (unmirrored, no overlay); preview is a mirrored copy.
         if vcam is not None and frame.shape[:2] == (vcam.height, vcam.width):
@@ -136,13 +151,19 @@ def main() -> int:
         status = f"{state}  charge {machine.charge:.0%}" if effects_on else "EFFECTS OFF"
         if audio.muted:
             status += "  [SFX MUTED]"
+        if vanish.mix >= 0.5:
+            status += "  [INVISIBLE]"
         cv2.putText(preview, status, (16, 112), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
         if lm is not None:
             cv2.putText(preview, f"openness {classifier.openness:.2f}  palm {facing(normal)}", (16, 142),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
             cv2.putText(preview, f"fingers {classifier.fingers}  thumb {classifier.thumb:+.2f}", (16, 172),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-        cv2.imshow("Hand VFX Camera (Space effects, M mute, D skeleton, Q quit)", preview)
+        message = vanish.message(now) or ("" if vanish.plate is not None else "B: capture the empty room for the vanishing jutsu")
+        if message:
+            cv2.putText(preview, message, (16, preview.shape[0] - 24), cv2.FONT_HERSHEY_SIMPLEX, 0.8,
+                        (0, 220, 255), 2, cv2.LINE_AA)
+        cv2.imshow("Hand VFX Camera (Space effects, M mute, B background, D skeleton, Q quit)", preview)
 
         key = cv2.waitKey(1) & 0xFF
         if key in (ord("q"), 27):
@@ -153,6 +174,8 @@ def main() -> int:
             show_skeleton = not show_skeleton
         if key == ord("m"):
             audio.muted = not audio.muted  # SFX only, for you and the meeting; your voice keeps going
+        if key == ord("b"):
+            vanish.start_capture(now)
 
     if vcam is not None:
         vcam.close()

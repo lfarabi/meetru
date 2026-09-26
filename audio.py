@@ -165,17 +165,23 @@ class Mixer:
         self.sounds, self.cfg = sounds, cfg
         self.muted = False
         self._queue = queue.SimpleQueue()
-        self._voices = []  # [name, buffer, position, gain, fading_out]; only the newest is not fading
+        self._voices = []  # [name, buffer, position, gain, fading_out, exclusive]; only the newest isn't fading
         # created up front so the audio thread never sees the dict change size
         self._loops = {name: _Loop(sounds[name]) for name in loops}
 
-    def play(self, name: str, gain: float = 1.0):
-        """Start a one-shot, fading out whatever one-shot is still playing so sounds never pile up."""
-        self._queue.put((name, gain))
+    def play(self, name: str, gain: float = 1.0, exclusive: bool = False):
+        """Start a one-shot, fading out whatever one-shot is still playing so sounds never pile up.
+
+        An exclusive one-shot plays to its end undisturbed: other one-shots requested meanwhile are
+        dropped and loops are silenced until it finishes."""
+        self._queue.put((name, gain, exclusive))
 
     def stop(self, name: str):
         """Fade out a one-shot if it is still playing."""
-        self._queue.put((name, None))
+        self._queue.put((name, None, False))
+
+    def _exclusive_playing(self) -> bool:
+        return any(v[5] and not v[4] for v in self._voices)
 
     def set_loop(self, name: str, gain: float, rate: float = 1.0):
         """Fade a loop toward `gain` (0 = stop) at playback `rate` (pitch)."""
@@ -185,13 +191,15 @@ class Mixer:
     def render(self, n: int) -> np.ndarray:
         out = np.zeros(n, np.float32)
         while not self._queue.empty():
-            name, gain = self._queue.get_nowait()
+            name, gain, exclusive = self._queue.get_nowait()
+            if self._exclusive_playing() and not exclusive:
+                continue  # nothing interrupts an exclusive sound
             for v in self._voices:
                 v[4] = v[4] or gain is not None or v[0] == name  # play: fade everything; stop: just `name`
             if gain is not None:
-                self._voices.append([name, self.sounds[name], 0, gain * self.cfg["sfx_volume"], False])
+                self._voices.append([name, self.sounds[name], 0, gain * self.cfg["sfx_volume"], False, exclusive])
         for v in self._voices:
-            _, buf, pos, gain, fading = v
+            _, buf, pos, gain, fading, _ = v
             chunk = buf[pos:pos + n] * gain
             if fading:  # one-block fade instead of a hard cut, which would click
                 chunk *= np.linspace(1, 0, len(chunk), dtype=np.float32)
@@ -200,7 +208,11 @@ class Mixer:
             v[2] += n
         self._voices = [v for v in self._voices if v[2] < len(v[1])]
 
+        hush = self._exclusive_playing()
         for lp in self._loops.values():
+            if hush:
+                lp.gain = 0.0  # ramps back in from silence afterwards instead of snapping on
+                continue
             if lp.target_gain <= 0 and lp.gain <= 1e-4:
                 continue
             buf = lp.buffer
@@ -247,11 +259,14 @@ class AudioEngine:
     passing audio between the two device threads.
     """
 
-    def __init__(self, cfg: dict, finger_cfg: dict, meeting_cfg: dict | None = None):
+    def __init__(self, cfg: dict, finger_cfg: dict, meeting_cfg: dict | None = None, jutsu_cfg: dict | None = None):
         self.cfg = cfg
         self.cooldown, self.hold = finger_cfg["cooldown"], finger_cfg["hold"]
+        self.jutsu = jutsu_cfg if jutsu_cfg and jutsu_cfg.get("sound") else None
         sounds = synthesize(cfg["sample_rate"])
         wanted = set(ORB_SOUNDS) | {finger_cfg[g]["sound"] for g in FINGER_GESTURES if g in finger_cfg}
+        if self.jutsu:
+            wanted.add(self.jutsu["sound"])
         for name in wanted:
             path = find_asset(name)
             if path:
@@ -274,6 +289,9 @@ class AudioEngine:
         self.mixer = Mixer(sounds, cfg, loops)  # monitor (your headphones)
         self._mixers = [self.mixer]
         self.meeting_mixer, self._fifo, self.meeting_cfg = None, None, meeting_cfg
+        if self.jutsu and self.jutsu["sound"] not in sounds:
+            log.warning("No jutsu sound %r: put %s.mp3 in %s", self.jutsu["sound"], self.jutsu["sound"], ASSET_DIR)
+            self.jutsu = None
         self._last_played = {}
         self._gesture, self._since, self._fired = None, 0.0, False  # finger gesture being held
         self._streams = []
@@ -344,6 +362,12 @@ class AudioEngine:
     def _meeting_callback(self, outdata, frames, time_info, status):
         mic = self._fifo.read(frames) * self.meeting_cfg["mic_volume"]
         outdata[:] = np.clip(mic + self.meeting_mixer.render(frames), -1, 1)[:, None]
+
+    def play_jutsu(self):
+        """The seal's sound: cuts whatever is playing and nothing else sounds until it ends."""
+        if self.jutsu:
+            for m in self._mixers:
+                m.play(self.jutsu["sound"], self.jutsu["volume"], exclusive=True)
 
     def _play(self, name: str, gain: float = 1.0):
         for m in self._mixers:
