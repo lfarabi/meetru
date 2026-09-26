@@ -84,6 +84,13 @@ vanish:
   sound: seal_sound   # assets/audio/<name>.mp3, played every time the seal fires; nothing else
   volume: 1.0                   # sounds (orb, blast, finger SFX, loops) until it has finished
 
+wow:
+  # both open hands together under the chin, fingers up → reaction clip + sound (also exclusive)
+  clip: assets/video/wow.mp4     # green-screen clip, shown full-frame as it was framed
+  sound: anime-wow-sound-effect
+  volume: 1.0
+  hold: 0.3                      # seconds the pose must be held
+
 audio:
   enabled: true
   host_api: Windows WASAPI   # low latency; "MME" is the slow but always-works fallback

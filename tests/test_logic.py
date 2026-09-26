@@ -569,7 +569,7 @@ def test_missing_orb_video_falls_back_to_procedural():
 
 
 # --- vanishing jutsu --------------------------------------------------------------
-from jutsu import Vanish, load_greenscreen_clip, seal_point  # noqa: E402
+from jutsu import PoseClip, Vanish, load_greenscreen_clip, seal_point, wow_pose  # noqa: E402
 from tracking import Hand  # noqa: E402
 
 TWO_UP_WORLD = hand3d(pick(2), False)[1]  # index + middle raised in 3D
@@ -607,11 +607,12 @@ def test_greenscreen_clip_is_keyed_trimmed_and_cropped(tmp_path):
             cv2.circle(f, (100, 90), 10 + 2 * (i - 6), (245, 245, 245), -1)
         out.write(f)
     out.release()
-    frames, fps, peak, (ax, ay) = load_greenscreen_clip(path)
+    clip = load_greenscreen_clip(path)
+    frames, fps, peak, (ax, ay) = clip.frames, clip.fps, clip.peak, clip.anchor
     assert 15 <= len(frames) <= 17 and abs(fps - 30) < 1       # green lead-in and black tail dropped
     color, alpha = frames[peak]
     h, w = alpha.shape
-    assert alpha[h // 2, w // 2] > 0.9 and alpha[0, 0] < 0.1     # smoke opaque, green gone
+    assert alpha[h // 2, w // 2] > 230 and alpha[0, 0] < 25     # smoke opaque, green gone
     assert color[h // 2, w // 2, 1] <= color[h // 2, w // 2, 2] + 5  # despilled: no green cast
     assert abs(ax - w / 2) < 3 and abs(ay - h / 2) < 3             # densest part = the disc's center
 
@@ -696,10 +697,68 @@ def test_seal_fires_its_sound_once_per_seal(tmp_path):
     assert fired == 2
 
 
-def test_jutsu_sound_is_optional():
-    ok = AudioEngine({**A_CFG, "enabled": False}, FINGER_CFG, None, {"sound": "finger_3", "volume": 1.0})
-    ok.play_jutsu()
-    assert ok.mixer._queue.qsize() == 1
-    missing = AudioEngine({**A_CFG, "enabled": False}, FINGER_CFG, None, {"sound": "nope", "volume": 1.0})
-    missing.play_jutsu()                     # no file: silently nothing, no crash
-    assert missing.mixer._queue.qsize() == 0
+def test_pose_sounds_are_optional():
+    poses = {"jutsu": {"sound": "finger_3", "volume": 1.0}, "wow": {"sound": "nope", "volume": 1.0}}
+    e = AudioEngine({**A_CFG, "enabled": False}, FINGER_CFG, None, poses)
+    e.play_pose("jutsu")
+    assert e.mixer._queue.qsize() == 1
+    e.play_pose("wow")                       # no file: silently nothing, no crash
+    assert e.mixer._queue.qsize() == 1
+
+
+
+# --- wow pose ------------------------------------------------------------------------------
+OPEN_WORLD4 = hand3d(pick(4), True)[1]
+
+
+def open_hand_at(wrist, knuckle):
+    """An open hand (4 fingers in 3D) whose wrist → middle knuckle runs from `wrist` to `knuckle`."""
+    lm = np.zeros((21, 3), np.float32)
+    lm[0, :2], lm[9, :2] = wrist, knuckle
+    return Hand(lm, OPEN_WORLD4)
+
+
+def test_open_hands_together_fingers_up_is_the_wow_pose():
+    left, right = open_hand_at((600, 500), (560, 400)), open_hand_at((660, 500), (700, 400))
+    assert wow_pose([left, right], 0.82)
+
+
+def test_wow_pose_needs_hands_together_open_and_up():
+    left = open_hand_at((600, 500), (560, 400))
+    assert not wow_pose([left, open_hand_at((1000, 500), (1040, 400))], 0.82)   # apart
+    assert not wow_pose([left, open_hand_at((660, 500), (760, 500))], 0.82)    # pointing sideways
+    closed = Hand(left.lm, hand3d(pick(0), False)[1])
+    assert not wow_pose([left, closed], 0.82)                                   # one fist
+    assert not wow_pose([left], 0.82)
+
+
+def write_dull_green_clip(path, n=30):
+    """Like wow.mp4: a duller green (40,152,26) with something skin-coloured rising from below."""
+    out = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 30, (320, 180))
+    for i in range(n):
+        f = np.full((180, 320, 3), (40, 152, 26), np.uint8)
+        if 5 <= i < 25:
+            cv2.rectangle(f, (200, 180 - 6 * (i - 4)), (300, 180), (140, 170, 220), -1)
+        out.write(f)
+    out.release()
+
+
+def test_dull_green_screen_keys_cleanly_and_keeps_its_framing(tmp_path):
+    write_dull_green_clip(tmp_path / "wow.mp4")
+    clip = load_greenscreen_clip(tmp_path / "wow.mp4")
+    _, alpha = clip.frames[0]                                 # subject just rising from the bottom
+    assert alpha[0, 0] < 25 and alpha[-1, alpha.shape[1] // 2] > 230   # green keyed out, subject kept
+    assert clip.source_width == 160 and clip.origin[0] >= 95  # crop remembers it sat on the right
+
+
+def test_pose_clip_plays_once_per_pose(tmp_path):
+    write_dull_green_clip(tmp_path / "wow.mp4")
+    pc = PoseClip({"clip": str(tmp_path / "wow.mp4"), "hold": 0.3}, "Wow")
+    fired, t = 0, 0.0
+    for posed in [True] * 40 + [False] * 5 + [True] * 10:
+        t += DT
+        fired += pc.update(posed, t)
+    assert fired == 2
+    frame = np.zeros((360, 640, 3), np.uint8)
+    pc.draw(frame, t)
+    assert frame[:, 400:].max() > 100 and frame[:, :300].max() == 0   # full-frame, on the right as framed

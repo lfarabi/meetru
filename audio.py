@@ -259,14 +259,15 @@ class AudioEngine:
     passing audio between the two device threads.
     """
 
-    def __init__(self, cfg: dict, finger_cfg: dict, meeting_cfg: dict | None = None, jutsu_cfg: dict | None = None):
+    def __init__(self, cfg: dict, finger_cfg: dict, meeting_cfg: dict | None = None,
+                 poses: dict[str, dict] | None = None):
+        """poses: pose name -> {sound, volume}, played exclusively by play_pose()."""
         self.cfg = cfg
         self.cooldown, self.hold = finger_cfg["cooldown"], finger_cfg["hold"]
-        self.jutsu = jutsu_cfg if jutsu_cfg and jutsu_cfg.get("sound") else None
+        self.poses = {k: v for k, v in (poses or {}).items() if v.get("sound")}
         sounds = synthesize(cfg["sample_rate"])
         wanted = set(ORB_SOUNDS) | {finger_cfg[g]["sound"] for g in FINGER_GESTURES if g in finger_cfg}
-        if self.jutsu:
-            wanted.add(self.jutsu["sound"])
+        wanted |= {p["sound"] for p in self.poses.values()}
         for name in wanted:
             path = find_asset(name)
             if path:
@@ -289,9 +290,10 @@ class AudioEngine:
         self.mixer = Mixer(sounds, cfg, loops)  # monitor (your headphones)
         self._mixers = [self.mixer]
         self.meeting_mixer, self._fifo, self.meeting_cfg = None, None, meeting_cfg
-        if self.jutsu and self.jutsu["sound"] not in sounds:
-            log.warning("No jutsu sound %r: put %s.mp3 in %s", self.jutsu["sound"], self.jutsu["sound"], ASSET_DIR)
-            self.jutsu = None
+        for name, p in list(self.poses.items()):
+            if p["sound"] not in sounds:
+                log.warning("No %s sound %r: put %s.mp3 in %s", name, p["sound"], p["sound"], ASSET_DIR)
+                del self.poses[name]
         self._last_played = {}
         self._gesture, self._since, self._fired = None, 0.0, False  # finger gesture being held
         self._streams = []
@@ -363,11 +365,12 @@ class AudioEngine:
         mic = self._fifo.read(frames) * self.meeting_cfg["mic_volume"]
         outdata[:] = np.clip(mic + self.meeting_mixer.render(frames), -1, 1)[:, None]
 
-    def play_jutsu(self):
-        """The seal's sound: cuts whatever is playing and nothing else sounds until it ends."""
-        if self.jutsu:
+    def play_pose(self, name: str):
+        """A two-hand pose's sound: cuts whatever is playing and nothing else sounds until it ends."""
+        p = self.poses.get(name)
+        if p:
             for m in self._mixers:
-                m.play(self.jutsu["sound"], self.jutsu["volume"], exclusive=True)
+                m.play(p["sound"], p["volume"], exclusive=True)
 
     def _play(self, name: str, gain: float = 1.0):
         for m in self._mixers:
