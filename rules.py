@@ -40,6 +40,10 @@ class Jurus:
         return self.cfg.get("name", "")
 
     @property
+    def gesture(self) -> str:
+        return str(self.cfg.get("gesture", ""))
+
+    @property
     def live(self) -> bool:
         """Able to fire: enabled and nothing wrong with it."""
         return self.problem is None and self.cfg.get("enabled", True)
@@ -54,7 +58,12 @@ class Jurus:
 
     @property
     def volume(self) -> float:
-        return (self.cfg.get("sound") or {}).get("volume", 1.0)
+        return _number((self.cfg.get("sound") or {}).get("volume"), 1.0)
+
+
+def _number(value, default: float) -> float:
+    """A hand-edited jurus.yaml may hold anything; a non-number must not reach the audio thread or the clock."""
+    return value if isinstance(value, (int, float)) else default
 
 
 def _decode(ref: str, store, sr: int) -> np.ndarray:
@@ -87,11 +96,15 @@ def build(jurus_cfg: list[dict], store, templates: list[dict], sr: int) -> tuple
     loops: set[str] = set()
     out = []
     for cfg in jurus_cfg:
-        gesture, visual = cfg["gesture"], cfg.get("visual") or {}
+        cfg = cfg if isinstance(cfg, dict) else {}  # keeps the output in step with the input; shows as a gesture problem
+        visual = cfg.get("visual")
+        # a tracker gap under 0.3 s isn't a release
+        j = Jurus(cfg, visual.get("type") if isinstance(visual, dict) else None, None, None, None, 1,
+                  HoldTrigger(_number(cfg.get("hold"), 0.3), gap=0.3))
+        gesture = j.gesture
         template = by_name.get(gesture[len("rec:"):]) if gesture.startswith("rec:") else None
-        j = Jurus(cfg, visual.get("type"), None, None, None,
-                  2 if gesture in TWO_HAND_GESTURES or (template and template["hands"] == 2) else 1,
-                  HoldTrigger(cfg.get("hold", 0.3), gap=0.3))  # a tracker gap under 0.3 s isn't a release
+        if gesture in TWO_HAND_GESTURES or (template and template["hands"] == 2):
+            j.hands = 2
 
         def check_gesture():
             if not (template is not None if gesture.startswith("rec:") else gesture in BUILTIN_GESTURES):
@@ -188,11 +201,11 @@ class Rules:
                 j.overlay.update(t)
         todo = [j for j in self.jurus if j.kind != "orb"]
         for j in todo:  # let go first, so a stop never lands after the play that replaces it
-            if j.holding and not (j.cfg["gesture"] in active and self._allowed(j, t, two_hands, blocked)):
+            if j.holding and not (j.gesture in active and self._allowed(j, t, two_hands, blocked)):
                 self._release(j, t)
         fired = []
         for j in todo:  # in list order: the first of two simultaneous exclusive jurus wins
-            if j.trigger.update(j.cfg["gesture"] in active, t, self._allowed(j, t, two_hands, blocked)):
+            if j.trigger.update(j.gesture in active, t, self._allowed(j, t, two_hands, blocked)):
                 j.fired_at, j.holding = t, True
                 self._play(j, j.looped)
                 if j.overlay:

@@ -234,3 +234,14 @@ def test_exclusive_waits_for_its_visual_as_well(dot, rig):
     assert [j.cfg["name"] for j in run(r, {TWO}, [0.0, 0.3])] == ["big"]
     assert run(r, {ONE}, [0.5, 1.0, 2.0, 2.2]) == []                             # the picture is up until 2.3
     assert [j.cfg["name"] for j in run(r, {ONE}, [2.4])] == ["one"]
+
+
+def test_a_hand_edited_file_cannot_crash_the_build_or_a_frame(store, rig):
+    cfgs = ["junk", {"name": "no gesture"}, J("odd numbers", ONE, hold="soon", sound=snd(volume="loud")),
+            J("v", TWO, visual="picture"), J("s", THREE, sound="boom"),
+            J("o", OPEN_PALM, sound=None, visual={"type": "orb"}, orb_sounds=["x"])]
+    jurus, _, _ = build(cfgs, store, [], 48000)
+    assert [j.problem for j in jurus] == ["gesture", "gesture", None, "visual", "sound", "sound"]
+    a, r = rig(*cfgs)
+    assert [j.name for j in run(r, {ONE, TWO, THREE, OPEN_PALM}, [0.0, 0.4])] == ["odd numbers"]
+    assert a.calls == [("play", "finger_1", 1.0, False)]            # volume and hold fell back to their defaults
