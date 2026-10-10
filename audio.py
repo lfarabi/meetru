@@ -210,14 +210,15 @@ class Mixer:
         out = np.zeros(n, np.float32)
         while not self._queue.empty():
             name, gain, exclusive = self._queue.get_nowait()
-            if gain is not None and name not in self.sounds:
+            buf = self.sounds.get(name)  # read once: a swap from the main thread may land at any moment
+            if gain is not None and buf is None:
                 continue  # removed by a sound-set swap while queued
             if self._exclusive_playing() and not exclusive:
                 continue  # nothing interrupts an exclusive sound
             for v in self._voices:
                 v[4] = v[4] or gain is not None or v[0] == name  # play: fade everything; stop: just `name`
             if gain is not None:
-                self._voices.append([name, self.sounds[name], 0, gain * self.cfg["sfx_volume"], False, exclusive])
+                self._voices.append([name, buf, 0, gain * self.cfg["sfx_volume"], False, exclusive])
         for v in self._voices:
             _, buf, pos, gain, fading, _ = v
             chunk = buf[pos:pos + n] * gain
@@ -366,7 +367,8 @@ class AudioEngine:
 
     def duration(self, name: str) -> float:
         """Seconds a sound lasts (0 if there is no such sound)."""
-        return len(self.sounds[name]) / self.cfg["sample_rate"] if name in self.sounds else 0.0
+        buf = self.sounds.get(name)
+        return 0.0 if buf is None else len(buf) / self.cfg["sample_rate"]
 
     def play(self, name: str, gain: float = 1.0, exclusive: bool = False):
         for m in self._mixers:

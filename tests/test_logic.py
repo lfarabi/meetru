@@ -345,6 +345,36 @@ def test_unknown_sound_names_are_ignored_not_fatal():
     assert not mx.render(256).any()
 
 
+class SwappedAfterFirstLookup(dict):
+    """A sound set that a set_sounds() swap replaces (here: empties) right after the first lookup."""
+
+    def __init__(self, d):
+        super().__init__(d)
+        self.lookups = 0
+
+    def _first(self):
+        self.lookups += 1
+        return self.lookups == 1
+
+    def __contains__(self, k):
+        return super().__contains__(k) and self._first()
+
+    def __getitem__(self, k):
+        if not self._first():
+            raise KeyError(k)
+        return super().__getitem__(k)
+
+    def get(self, k, default=None):
+        return super().get(k, default) if self._first() else default
+
+
+def test_render_reads_the_sound_set_once_per_command():
+    mx = Mixer(SOUNDS_, A_CFG)
+    mx.sounds = SwappedAfterFirstLookup(SOUNDS_)  # a swap lands between a check and a use
+    mx.play("blast")
+    assert np.abs(mx.render(256)).max() > 0       # no KeyError on the audio thread, the sound plays
+
+
 def test_charge_loop_survives_a_swap():
     e = new_engine()
     e.set_loop("charge_loop", 1.0)
