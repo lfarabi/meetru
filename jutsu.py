@@ -265,19 +265,19 @@ class Vanish:
             self._say("Empty room captured", t)
             log.info("Background plate saved to %s", self.cfg["background"])
 
-    def fire(self, at: np.ndarray, t: float):
+    def fire(self, at: np.ndarray, t: float) -> None:
         """Toggle you out/in, the smoke puff centered on `at`; ignored while a vanish is running.
         With no room photo yet it explains instead of vanishing."""
         if self.busy:
             return
-        self._start, self._at, self._from = t, at, self.mix
+        self._start, self._at, self._from = t, np.array(at, np.float32), self.mix  # copy: callers reuse buffers
         if self.plate is None:
             self._to = 0.0
             self._say("No empty-room background yet: press B first", t)
         else:
             self._to = 1.0 - round(self.mix)
 
-    def update(self, t: float):
+    def update(self, t: float) -> None:
         """Call once per frame to advance the mix."""
         if not self.busy:
             return

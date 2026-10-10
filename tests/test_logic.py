@@ -710,7 +710,8 @@ def test_fire_while_the_vanish_is_running_is_ignored(tmp_path):
     v = Vanish(vanish_cfg(tmp_path), (720, 1280, 3))
     v.plate = np.full((720, 1280, 3), 90, np.uint8)
     v.fire(SEAL_AT, 0.0)
-    t = run_vanish(v, 0.0, 0.2)
+    t = run_vanish(v, 0.0, 0.35)
+    assert v.mix > 0.5                       # past halfway: an unguarded fire would retarget to "back"
     v.fire(SEAL_AT, t)                       # a second seal mid-puff must not flip the target back
     t = run_vanish(v, t, 1.0)
     assert v.mix == 1
