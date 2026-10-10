@@ -4,7 +4,7 @@ mirrored preview; the output frame (what the meeting sees) is unmirrored."""
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 import jutsu
 from jutsu import Clip, draw_clip
@@ -13,15 +13,22 @@ POSITIONS = ("hand", "full", "top_left", "top", "top_right", "left", "center", "
              "bottom_left", "bottom", "bottom_right")
 MARGIN = 0.04       # gap to the frame edge for the grid positions, as a fraction of frame height
 RELEASE_FADE = 0.2  # seconds a held visual takes to fade out once the gesture is let go
+MAX_IMAGE_HEIGHT = 720  # bigger pictures are shrunk on load: draw_clip resizes every frame it draws
 
 
 def image_clip(path: Path) -> Clip:
-    """A picture or animated GIF/PNG/WebP, alpha kept. Animations play at their mean frame rate."""
+    """A picture or animated GIF/PNG/WebP, alpha kept, upright per its EXIF tag and shrunk to at
+    most MAX_IMAGE_HEIGHT tall. Animations play at their mean frame rate."""
     frames, durations = [], []
     with Image.open(path) as im:
-        for i in range(getattr(im, "n_frames", 1)):
+        # only these hold animation frames; a phone JPEG (MPO) also has a second, smaller picture
+        for i in range(im.n_frames if im.format in ("GIF", "PNG", "WEBP") else 1):
             im.seek(i)
-            rgba = np.asarray(im.convert("RGBA"))
+            rgba = ImageOps.exif_transpose(im).convert("RGBA")
+            if rgba.height > MAX_IMAGE_HEIGHT:
+                rgba = rgba.resize((round(rgba.width * MAX_IMAGE_HEIGHT / rgba.height), MAX_IMAGE_HEIGHT),
+                                   Image.Resampling.LANCZOS)
+            rgba = np.asarray(rgba)
             frames.append((np.ascontiguousarray(rgba[..., 2::-1]), rgba[..., 3].copy()))  # RGB → BGR
             durations.append(im.info.get("duration", 100))
     h, w = frames[0][1].shape
@@ -31,7 +38,7 @@ def image_clip(path: Path) -> Clip:
 
 def text_clip(text: str, color: str, px: int = 160) -> Clip:
     """`text` in bold `color` with a dark outline, one frame. Needs a running QGuiApplication."""
-    from PySide6.QtCore import Qt
+    from PySide6.QtCore import QPointF, Qt
     from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen
 
     fill = QColor(color)
@@ -51,7 +58,11 @@ def text_clip(text: str, color: str, px: int = 160) -> Clip:
     painter.translate(-box.topLeft())
     painter.strokePath(path, QPen(QColor(20, 20, 20), 2 * outline, Qt.PenStyle.SolidLine,
                                   Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-    painter.fillPath(path, fill)  # over the stroke, so the outline shows only outside the letters
+    # drawText, not fillPath, so colour emoji keep their own colours; over the stroke, so the
+    # outline shows only outside the letters
+    painter.setFont(font)
+    painter.setPen(fill)
+    painter.drawText(QPointF(0, 0), text)
     painter.end()
     w, h = img.width(), img.height()
     bgra = np.frombuffer(img.constBits(), np.uint8).reshape(h, img.bytesPerLine())[:, :w * 4].reshape(h, w, 4)

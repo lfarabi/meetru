@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 from PIL import Image
@@ -46,6 +48,41 @@ def test_gif_and_unicode_named_png_load_with_alpha(tmp_path):
     bgr, alpha = image_clip(tmp_path / "é.png").frames[0]
     assert alpha.min() == 0 and alpha.max() == 255
     assert tuple(bgr[0, 0]) == (0, 0, 255)                  # red, in BGR order
+
+
+def test_phone_photos_are_upright_and_single_frame(tmp_path):
+    img = Image.new("RGB", (40, 20), "red")
+    img.paste("blue", (20, 0, 40, 20))                      # red left half, blue right half
+    exif = Image.Exif()
+    exif[0x0112] = 6                                        # Orientation: show rotated 90° clockwise
+    img.save(tmp_path / "rot.jpg", exif=exif)
+    bgr, _ = image_clip(tmp_path / "rot.jpg").frames[0]
+    assert bgr.shape[:2] == (40, 20)                        # upright: taller than wide, red on top
+    assert bgr[2, 10, 2] > 200 and bgr[2, 10, 0] < 50 and bgr[-3, 10, 0] > 200 and bgr[-3, 10, 2] < 50
+
+    img.save(tmp_path / "phone.jpg", format="MPO", save_all=True, append_images=[img.resize((10, 5))])
+    with Image.open(tmp_path / "phone.jpg") as im:
+        assert im.format == "MPO" and im.n_frames == 2      # a main picture plus a smaller second one
+    assert len(image_clip(tmp_path / "phone.jpg").frames) == 1
+
+
+def test_big_images_are_shrunk_but_small_ones_are_not_enlarged(tmp_path):
+    Image.new("RGB", (2000, 1500), "green").save(tmp_path / "big.png")
+    big = image_clip(tmp_path / "big.png")
+    assert big.frames[0][0].shape[:2] == (720, 960) and big.source_width == 960
+    Image.new("RGB", (300, 200), "green").save(tmp_path / "small.png")
+    assert image_clip(tmp_path / "small.png").frames[0][0].shape[:2] == (200, 300)
+
+
+def test_emoji_keep_their_own_colours(qapp):
+    from PySide6.QtGui import QFontDatabase
+    font = Path("C:/Windows/Fonts/seguiemj.ttf")            # offscreen has no fonts of its own
+    if not font.is_file() or QFontDatabase.addApplicationFont(str(font)) < 0:
+        pytest.skip("no colour emoji font available")
+    bgr, alpha = text_clip("😀", "#ff00ff").frames[0]   # magenta fill, dark outline
+    assert bgr[alpha == 255][:, 1].max() > 100              # something with green in it: not a one-colour silhouette
+    bgr, alpha = text_clip("WOW!", "#ff00ff").frames[0]
+    assert bgr[alpha == 255][:, 1].max() <= 20              # plain text is only fill and outline: no green
 
 
 def test_text_renders_a_visible_sprite(qapp):
