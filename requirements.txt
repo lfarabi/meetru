@@ -6,3 +6,5 @@ pyvirtualcam
 sounddevice
 pytest
 soundfile
+PySide6
+Pillow
