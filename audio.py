@@ -1,7 +1,8 @@
-"""Gesture SFX: placeholder sounds synthesized with NumPy (overridable by WAVs) and a low-latency mixer.
+"""Gesture SFX: placeholder sounds synthesized with NumPy and a low-latency mixer.
 
-Audio follows orb *state* transitions and finger-count gestures, never the renderer, so it stays
-independent of the VFX.
+The sound set (the built-in placeholders plus whatever the user's jurus load) is swapped in at
+runtime with `AudioEngine.set_sounds`; the rules decide when each one plays. Orb sounds follow orb
+*state* transitions, never the renderer, so audio stays independent of the VFX.
 """
 import logging
 import queue
@@ -11,12 +12,10 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
-from gestures import ACTIVE, BLAST, CHARGING, FADING, FINGER_GESTURES, HIDDEN
+from gestures import ACTIVE, BLAST, CHARGING, FADING, HIDDEN
 
 log = logging.getLogger(__name__)
-ORB_SOUNDS = ("activation", "charge_loop", "blast", "power_down")
-ASSET_DIR = Path("assets/audio")
-AUDIO_EXTS = (".wav", ".mp3", ".ogg", ".flac")
+BUILTIN_SOUNDS = ("activation", "charge_loop", "blast", "power_down", "finger_1", "finger_2", "finger_3", "finger_4")
 
 
 def _band(x: np.ndarray, lo: float, hi: float, sr: int) -> np.ndarray:
@@ -122,11 +121,6 @@ def synthesize(sr: int) -> dict[str, np.ndarray]:
             "finger_1": finger_1, "finger_2": finger_2, "finger_3": finger_3, "finger_4": finger_4}
 
 
-def find_asset(name: str) -> Path | None:
-    """assets/audio/<name> with the first supported extension that exists."""
-    return next((p for ext in AUDIO_EXTS if (p := ASSET_DIR / f"{name}{ext}").exists()), None)
-
-
 def load_sound(path: Path, sr: int) -> np.ndarray:
     """Load WAV/MP3/OGG/FLAC as mono float32 at `sr` (linear resampling if needed)."""
     x, rate = sf.read(str(path), dtype="float32", always_2d=True)
@@ -136,9 +130,16 @@ def load_sound(path: Path, sr: int) -> np.ndarray:
     return x
 
 
+def _hostapi_index(sd, host_api: str) -> int:
+    for i, h in enumerate(sd.query_hostapis()):
+        if h["name"] == host_api:
+            return i
+    raise LookupError(f"no audio host API {host_api!r}")
+
+
 def find_device(sd, host_api: str, name: str | None, kind: str) -> int:
     """Device index on `host_api` whose name contains `name`, or that API's default device if name is None."""
-    api = next(i for i, h in enumerate(sd.query_hostapis()) if h["name"] == host_api)
+    api = _hostapi_index(sd, host_api)
     if name is None:
         return sd.query_hostapis(api)[f"default_{kind}_device"]
     channels = f"max_{kind}_channels"
@@ -146,6 +147,13 @@ def find_device(sd, host_api: str, name: str | None, kind: str) -> int:
         if dev["hostapi"] == api and dev[channels] > 0 and name.lower() in dev["name"].lower():
             return i
     raise LookupError(f"no {kind} device matching {name!r} on {host_api}")
+
+
+def list_devices(host_api: str, kind: str) -> list[str]:
+    """Names of the `kind` ("input"/"output") devices on `host_api`, for a device picker."""
+    import sounddevice as sd
+    api = _hostapi_index(sd, host_api)
+    return [d["name"] for d in sd.query_devices() if d["hostapi"] == api and d[f"max_{kind}_channels"] > 0]
 
 
 class _Loop:
@@ -162,12 +170,21 @@ class Mixer:
     """
 
     def __init__(self, sounds: dict[str, np.ndarray], cfg: dict, loops: tuple[str, ...] = ("charge_loop",)):
-        self.sounds, self.cfg = sounds, cfg
+        self.cfg = cfg
         self.muted = False
         self._queue = queue.SimpleQueue()
         self._voices = []  # [name, buffer, position, gain, fading_out, exclusive]; only the newest isn't fading
-        # created up front so the audio thread never sees the dict change size
-        self._loops = {name: _Loop(sounds[name]) for name in loops}
+        self._loops = {}
+        self.set_sounds(sounds, set(loops))
+
+    def set_sounds(self, sounds: dict[str, np.ndarray], loops: set[str]):
+        """Swap the sound set. New dicts are assigned by reference, never edited in place, so the audio
+        thread (which iterates `_loops` and reads `sounds`) never sees one change size. Voices already
+        playing keep their buffers; a loop that is still the same sound keeps running."""
+        old = self._loops
+        self._loops = {name: old[name] if name in old and old[name].buffer is sounds[name] else _Loop(sounds[name])
+                       for name in loops if name in sounds}
+        self.sounds = sounds
 
     def play(self, name: str, gain: float = 1.0, exclusive: bool = False):
         """Start a one-shot, fading out whatever one-shot is still playing so sounds never pile up.
@@ -185,13 +202,16 @@ class Mixer:
 
     def set_loop(self, name: str, gain: float, rate: float = 1.0):
         """Fade a loop toward `gain` (0 = stop) at playback `rate` (pitch)."""
-        loop = self._loops[name]
-        loop.target_gain, loop.target_rate = gain, rate
+        loop = self._loops.get(name)
+        if loop:  # a sound that was removed (or never loaded) is silently ignored
+            loop.target_gain, loop.target_rate = gain, rate
 
     def render(self, n: int) -> np.ndarray:
         out = np.zeros(n, np.float32)
         while not self._queue.empty():
             name, gain, exclusive = self._queue.get_nowait()
+            if gain is not None and name not in self.sounds:
+                continue  # removed by a sound-set swap while queued
             if self._exclusive_playing() and not exclusive:
                 continue  # nothing interrupts an exclusive sound
             for v in self._voices:
@@ -259,43 +279,13 @@ class AudioEngine:
     passing audio between the two device threads.
     """
 
-    def __init__(self, cfg: dict, finger_cfg: dict, meeting_cfg: dict | None = None,
-                 poses: dict[str, dict] | None = None):
-        """poses: pose name -> {sound, volume}, played exclusively by play_pose()."""
+    def __init__(self, cfg: dict, meeting_cfg: dict | None = None):
         self.cfg = cfg
-        self.cooldown, self.hold = finger_cfg["cooldown"], finger_cfg["hold"]
-        self.poses = {k: v for k, v in (poses or {}).items() if v.get("sound")}
-        sounds = synthesize(cfg["sample_rate"])
-        wanted = set(ORB_SOUNDS) | {finger_cfg[g]["sound"] for g in FINGER_GESTURES if g in finger_cfg}
-        wanted |= {p["sound"] for p in self.poses.values()}
-        for name in wanted:
-            path = find_asset(name)
-            if path:
-                try:
-                    sounds[name] = load_sound(path, cfg["sample_rate"])
-                    log.info("Using %s", path)
-                except Exception as e:
-                    log.warning("Ignoring %s: %s", path, e)
-        # gesture -> {sound, mode, volume}; a mapping whose sound can't be found is dropped with a warning
-        self.fingers = {}
-        for g in FINGER_GESTURES:
-            spec = finger_cfg.get(g)
-            if spec and spec["sound"] in sounds:
-                self.fingers[g] = spec
-            elif spec:
-                log.warning("No sound %r for %s: put %s.mp3 (or .wav/.ogg/.flac) in %s",
-                            spec["sound"], g, spec["sound"], ASSET_DIR)
-        loops = ("charge_loop",) + tuple({s["sound"] for s in self.fingers.values() if s["mode"] == "loop"})
-        self._sounds, self._loop_names = sounds, loops
-        self.mixer = Mixer(sounds, cfg, loops)  # monitor (your headphones)
+        self.builtin = synthesize(cfg["sample_rate"])
+        self.sounds, self._loop_names = self.builtin, {"charge_loop"}
+        self.mixer = Mixer(self.sounds, cfg, tuple(self._loop_names))  # monitor (your headphones)
         self._mixers = [self.mixer]
         self.meeting_mixer, self._fifo, self.meeting_cfg = None, None, meeting_cfg
-        for name, p in list(self.poses.items()):
-            if p["sound"] not in sounds:
-                log.warning("No %s sound %r: put %s.mp3 in %s", name, p["sound"], p["sound"], ASSET_DIR)
-                del self.poses[name]
-        self._last_played = {}
-        self._gesture, self._since, self._fired = None, 0.0, False  # finger gesture being held
         self._streams = []
         if not cfg["enabled"]:
             return
@@ -309,6 +299,8 @@ class AudioEngine:
 
     def _open(self, sd, stream_cls, device_name, kind, channels, callback):
         device = find_device(sd, self.cfg["host_api"], device_name, kind)
+        if kind == "input" and "CABLE" in sd.query_devices(device)["name"]:
+            raise LookupError("mic is the virtual cable")  # its output is what we write to: a feedback loop
         wasapi = sd.WasapiSettings(auto_convert=True) if "WASAPI" in self.cfg["host_api"] else None
         stream = stream_cls(samplerate=self.cfg["sample_rate"], channels=channels, dtype="float32",
                             blocksize=self.cfg["blocksize"], device=device, latency="low",
@@ -337,7 +329,7 @@ class AudioEngine:
     def add_meeting_mixer(self, mcfg: dict):
         """Second mixer + mic queue for the meeting output (no device; the streams feed/drain it)."""
         self.meeting_cfg = mcfg
-        self.meeting_mixer = Mixer(self._sounds, {**self.cfg, "master_volume": mcfg["sfx_volume"]}, self._loop_names)
+        self.meeting_mixer = Mixer(self.sounds, {**self.cfg, "master_volume": mcfg["sfx_volume"]}, tuple(self._loop_names))
         self.meeting_mixer.muted = self.mixer.muted
         self._mixers.append(self.meeting_mixer)
         self._fifo = Fifo(int(mcfg["max_latency_ms"] / 1000 * self.cfg["sample_rate"]))
@@ -365,22 +357,26 @@ class AudioEngine:
         mic = self._fifo.read(frames) * self.meeting_cfg["mic_volume"]
         outdata[:] = np.clip(mic + self.meeting_mixer.render(frames), -1, 1)[:, None]
 
-    def play_pose(self, name: str):
-        """A two-hand pose's sound: cuts whatever is playing and nothing else sounds until it ends."""
-        p = self.poses.get(name)
-        if p:
-            for m in self._mixers:
-                m.play(p["sound"], p["volume"], exclusive=True)
-
-    def _play(self, name: str, gain: float = 1.0):
+    def set_sounds(self, sounds: dict[str, np.ndarray], loops: set[str]):
+        """Replace the user's sound set (the built-ins stay available underneath, so a jurus can also
+        override e.g. `blast`). `loops` names the sounds driven by set_loop; `charge_loop` always is."""
+        self.sounds, self._loop_names = {**self.builtin, **sounds}, {"charge_loop", *loops}
         for m in self._mixers:
-            m.play(name, gain)
+            m.set_sounds(self.sounds, self._loop_names)
 
-    def _stop(self, name: str):
+    def duration(self, name: str) -> float:
+        """Seconds a sound lasts (0 if there is no such sound)."""
+        return len(self.sounds[name]) / self.cfg["sample_rate"] if name in self.sounds else 0.0
+
+    def play(self, name: str, gain: float = 1.0, exclusive: bool = False):
+        for m in self._mixers:
+            m.play(name, gain, exclusive)
+
+    def stop(self, name: str):
         for m in self._mixers:
             m.stop(name)
 
-    def _set_loop(self, name: str, gain: float, rate: float = 1.0):
+    def set_loop(self, name: str, gain: float, rate: float = 1.0):
         for m in self._mixers:
             m.set_loop(name, gain, rate)
 
@@ -388,43 +384,13 @@ class AudioEngine:
         """Map orb state transitions to SFX; call once per frame."""
         if state != prev:
             if state == ACTIVE and prev == HIDDEN:
-                self._play("activation")
+                self.play("activation")
             elif state == BLAST:
-                self._play("blast", 0.6 + 0.4 * blast_power)
+                self.play("blast", 0.6 + 0.4 * blast_power)
             elif state == FADING and not silent_fade:
-                self._play("power_down", 0.7)
+                self.play("power_down", 0.7)
         gain = (0.5 + 0.5 * charge) * self.cfg["charge_volume"] if state == CHARGING else 0.0
-        self._set_loop("charge_loop", gain, 1.0 + 0.8 * charge)  # pitch rises with charge
-
-    def update_fingers(self, gesture: str, t: float, busy: bool = False):
-        """Finger-count SFX; call once per frame.
-
-        A finger gesture must be held for `hold` seconds first, so the counts the hand passes through
-        while opening or closing (e.g. releasing a fist into a blast) don't fire. `busy` (orb
-        charging/blasting, a two-hand pose forming or recently seen, a pose clip playing) means the
-        finger count is part of something else: nothing fires, a finger sound that already started
-        was a misfire and stops, and the hold only starts counting once busy ends. 'once' plays
-        through once (rate-limited per gesture) and stops early if the gesture is let go; 'loop'
-        repeats for as long as the gesture is held.
-        """
-        current = self.fingers.get(self._gesture)
-        if gesture != self._gesture or busy:
-            if self._fired and current and current["mode"] == "once":
-                self._stop(current["sound"])  # let go of, or overtaken by a pose: the sound stops
-        if gesture != self._gesture:
-            self._gesture, self._since, self._fired = gesture, t, False
-        if busy:
-            self._since = t
-        settled = t - self._since >= self.hold and not busy
-        for g, spec in self.fingers.items():
-            if spec["mode"] == "loop":
-                self._set_loop(spec["sound"], spec["volume"] if gesture == g and settled else 0.0)
-        spec = self.fingers.get(gesture)
-        if spec and spec["mode"] == "once" and settled and not self._fired:
-            self._fired = True
-            if t - self._last_played.get(gesture, float("-inf")) >= self.cooldown:
-                self._play(spec["sound"], spec["volume"])
-                self._last_played[gesture] = t
+        self.set_loop("charge_loop", gain, 1.0 + 0.8 * charge)  # pitch rises with charge
 
     def close(self):
         for s in self._streams:

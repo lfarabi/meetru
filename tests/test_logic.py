@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from gestures import (FIST, FOUR, NO_HAND, ONE, OPEN_PALM, THREE, TWO, GestureClassifier, openness,
                       raised_fingers, thumb_out)
@@ -245,6 +246,7 @@ def test_finger_gesture_does_not_spawn_orb():
 
 
 # --- audio mixer --------------------------------------------------------------
+import audio  # noqa: E402
 from audio import AudioEngine, Mixer, synthesize  # noqa: E402
 
 SR = 48000
@@ -255,6 +257,10 @@ SOUNDS_ = synthesize(SR)
 def test_synthesized_sounds_are_clean():
     for name, x in SOUNDS_.items():
         assert x.dtype == np.float32 and np.isfinite(x).all() and 0.3 < np.abs(x).max() <= 0.91, name
+
+
+def test_builtin_sound_names_match_the_synthesized_set():
+    assert set(audio.BUILTIN_SOUNDS) == set(SOUNDS_)
 
 
 def test_loops_are_seamless():
@@ -295,60 +301,57 @@ def test_charge_loop_ramps_in_and_out_and_mute_silences():
     assert np.abs(mx.render(256)).max() < 1e-3
 
 
-# built-in sounds only: the user's config points at gitignored MP3s that a fresh clone won't have
-FINGER_CFG = {"cooldown": 0.3, "hold": 0.15,
-              ONE: {"sound": "finger_1", "mode": "once", "volume": 1.0},
-              TWO: {"sound": "finger_2", "mode": "once", "volume": 1.0},
-              THREE: {"sound": "finger_3", "mode": "once", "volume": 1.0},
-              FOUR: {"sound": "finger_4", "mode": "loop", "volume": 0.8}}
+def playing(mx):
+    mx.render(256)
+    return [v[0] for v in mx._voices if not v[4]]
 
 
-class Fingers:
-    """Drives AudioEngine.update_fingers frame by frame (25 fps), without an audio device."""
-
-    def __init__(self):
-        self.e, self.t = AudioEngine({**A_CFG, "enabled": False}, FINGER_CFG), 0.0
-
-    def show(self, gesture, seconds, busy=False):
-        for _ in range(max(1, round(seconds / DT))):
-            self.t += DT
-            self.e.update_fingers(gesture, self.t, busy)
-        return self
-
-    def playing(self):
-        self.e.mixer.render(256)
-        return [v[0] for v in self.e.mixer._voices if not v[4]]
+def new_engine():
+    return AudioEngine({**A_CFG, "enabled": False})
 
 
-def test_finger_sound_waits_for_the_hold_then_plays_once():
-    f = Fingers().show(TWO, 0.08)
-    assert f.playing() == []           # still inside the hold window
-    assert f.show(TWO, 0.12).playing() == ["finger_2"]  # held from t=0.04 to 0.20 ≥ hold
-    f.show(TWO, 1.0)
-    assert f.e.mixer._queue.qsize() == 0  # holding does not replay
+def test_sound_set_can_be_swapped_at_runtime():
+    a = AudioEngine({**M_CFG["audio"], "enabled": False})
+    a.set_sounds({"ding": np.ones(4800, np.float32)}, set())
+    assert a.duration("ding") == pytest.approx(0.1) and "finger_1" in a.mixer.sounds
+    a.play("ding"); assert np.abs(a.mixer.render(256)).max() > 0
 
 
-def test_passing_through_a_count_does_not_fire():
-    f = Fingers().show(ONE, 0.04).show(TWO, 0.04).show(THREE, 0.04).show(OPEN_PALM, 0.5)
-    assert f.playing() == []
+def test_loop_sounds_follow_the_set():
+    a = AudioEngine({**M_CFG["audio"], "enabled": False})
+    a.set_sounds({"hum": np.ones(4800, np.float32)}, {"hum"})
+    a.set_loop("hum", 1.0); assert np.abs(a.mixer.render(4096)).max() > 0
 
 
-def test_switching_fingers_cuts_the_previous_sound():
-    f = Fingers().show(THREE, 0.3)
-    assert f.playing() == ["finger_3"]
-    f.show(ONE, 0.3)
-    assert f.playing() == ["finger_1"]  # finger_3 was faded out, not left playing underneath
-    f.e.mixer.render(256)
-    assert [v[0] for v in f.e.mixer._voices] == ["finger_1"]
+def test_swap_reaches_the_meeting_mixer_and_leaves_playing_voices_alone():
+    e = new_engine()
+    e.add_meeting_mixer(MEET_CFG)
+    e.play("blast")
+    e.mixer.render(256)
+    old = e.mixer.sounds
+    e.set_sounds({"blast": np.zeros(4800, np.float32), "ding": np.ones(4800, np.float32)}, set())
+    assert e.mixer.sounds is not old and old["blast"] is e.builtin["blast"]   # a new dict; the old one wasn't edited
+    assert e.meeting_mixer.sounds["ding"] is e.mixer.sounds["ding"]
+    assert e.mixer._voices[0][1] is e.builtin["blast"]                         # the voice already playing keeps its buffer
+    e.set_sounds({}, set())
+    assert "ding" not in e.mixer.sounds and "ding" not in e.meeting_mixer.sounds
+    assert e.duration("ding") == 0.0
 
 
-def test_letting_go_of_the_gesture_stops_its_sound():
-    for after in (NO_HAND, FIST):
-        f = Fingers().show(THREE, 0.3)
-        assert f.playing() == ["finger_3"]
-        f.show(after, DT)
-        assert f.playing() == []  # fading out this block
-        assert f.e.mixer._voices == []
+def test_unknown_sound_names_are_ignored_not_fatal():
+    mx = Mixer(SOUNDS_, A_CFG)
+    mx.play("gone")
+    mx.set_loop("gone", 1.0)
+    assert not mx.render(256).any()
+
+
+def test_charge_loop_survives_a_swap():
+    e = new_engine()
+    e.set_loop("charge_loop", 1.0)
+    for _ in range(40):
+        e.mixer.render(256)
+    e.set_sounds({"ding": np.ones(480, np.float32)}, set())
+    assert np.abs(e.mixer.render(256)).max() > 0.1  # still humming, no restart from silence
 
 
 def test_stop_only_touches_the_named_sound():
@@ -359,45 +362,12 @@ def test_stop_only_touches_the_named_sound():
     assert [v[0] for v in mx._voices if not v[4]] == ["blast"]
 
 
-def test_no_finger_sound_while_busy_and_the_hold_restarts_after():
-    f = Fingers().show(TWO, 0.5, busy=True)
-    assert f.playing() == []
-    assert f.show(TWO, DT, busy=False).playing() == []            # busy just ended: hold starts now
-    assert f.show(TWO, 0.2, busy=False).playing() == ["finger_2"]
-
-
-def test_finger_sound_already_playing_stops_when_a_pose_takes_over():
-    f = Fingers().show(TWO, 0.3)
-    assert f.playing() == ["finger_2"]                          # one hand up alone long enough: fired
-    f.show(TWO, DT, busy=True)                                   # ...then the second hand shows up
-    assert f.playing() == []
-    f.e.mixer.render(256)
-    assert f.e.mixer._voices == []
-
-
-def test_forming_a_seal_one_hand_first_makes_no_finger_sound():
-    f = Fingers()
-    f.e.hold = 0.3                                               # the configured hold
-    f.show(TWO, 0.2)                                             # first hand up with two fingers
-    f.show(TWO, 1.0, busy=True)                                  # second hand joins: the seal
-    f.show(TWO, 0.2, busy=True)                                  # tracker drops a hand, grace still on
-    f.show(NO_HAND, 0.3)                                         # hands down
-    assert f.e.mixer._queue.qsize() == 0 and f.playing() == []
-
-
 def test_orb_sound_cuts_a_finger_sound():
-    f = Fingers().show(THREE, 0.3)
-    f.e.update(HIDDEN, ACTIVE, 0.0, 0.0)  # open palm spawns the orb
-    assert f.playing() == ["activation"]
-
-
-def test_finger_loop_plays_while_held_and_stops_after():
-    f = Fingers().show(FOUR, 0.5)
-    assert max(np.abs(f.e.mixer.render(256)).max() for _ in range(40)) > 0.1
-    f.show(NO_HAND, 0.1)
-    for _ in range(80):
-        f.e.mixer.render(256)
-    assert np.abs(f.e.mixer.render(256)).max() < 1e-3
+    e = new_engine()
+    e.play("finger_3")
+    assert playing(e.mixer) == ["finger_3"]
+    e.update(HIDDEN, ACTIVE, 0.0, 0.0)  # open palm spawns the orb
+    assert playing(e.mixer) == ["activation"]
 
 
 def test_new_one_shot_fades_out_the_previous_one():
@@ -408,11 +378,6 @@ def test_new_one_shot_fades_out_the_previous_one():
     mx.render(256)  # old copy fades out during this block
     mx.render(256)
     assert [v[0] for v in mx._voices] == ["finger_3"] and mx._voices[0][2] == 512
-
-
-def test_missing_custom_sound_is_dropped_not_fatal():
-    e = AudioEngine({**A_CFG, "enabled": False}, {**FINGER_CFG, "ONE": {"sound": "nope", "mode": "once", "volume": 1}})
-    assert "ONE" not in e.fingers and "TWO" in e.fingers
 
 
 # --- 3D palm normal, anchor and occlusion ------------------------------------
@@ -476,21 +441,12 @@ def test_hand_covers_orb_only_where_the_hand_is():
 # --- sound files --------------------------------------------------------------
 import soundfile as sf  # noqa: E402
 
-import audio  # noqa: E402
-
 
 def test_mp3_is_loaded_mono_and_resampled(tmp_path):
     tone = np.sin(2 * np.pi * 440 * np.arange(44100) / 44100).astype(np.float32) * 0.5
     sf.write(tmp_path / "beep.mp3", np.stack([tone, tone], axis=1), 44100)  # 1 s stereo at 44.1 kHz
     x = audio.load_sound(tmp_path / "beep.mp3", 48000)
     assert x.ndim == 1 and abs(len(x) - 48000) < 3000 and 0.3 < np.abs(x).max() < 0.7
-
-
-def test_asset_lookup_accepts_any_supported_extension(tmp_path, monkeypatch):
-    monkeypatch.setattr(audio, "ASSET_DIR", tmp_path)
-    (tmp_path / "horn.mp3").write_bytes(b"")
-    assert audio.find_asset("horn") == tmp_path / "horn.mp3"
-    assert audio.find_asset("missing") is None
 
 
 # --- virtual camera -------------------------------------------------------------
@@ -531,30 +487,41 @@ def meeting_out(e, frames=256):
 
 
 def test_meeting_output_carries_mic_and_sfx():
-    f = Fingers()
-    f.e.add_meeting_mixer(MEET_CFG)
+    e = new_engine()
+    e.add_meeting_mixer(MEET_CFG)
     mic = np.full(256, 0.1, np.float32)
-    f.e._fifo.write(mic)
-    assert np.allclose(meeting_out(f.e)[:, 0], 0.1)     # voice passes through untouched
-    f.show(ONE, 0.3)                                     # finger SFX goes to both mixers
-    assert f.e.meeting_mixer._queue.qsize() == 1
+    e._fifo.write(mic)
+    assert np.allclose(meeting_out(e)[:, 0], 0.1)       # voice passes through untouched
+    e.play("finger_1")                                   # SFX goes to both mixers
+    assert e.meeting_mixer._queue.qsize() == 1
     loudest = 0.0
     for _ in range(20):  # ~0.1 s of the beep
-        f.e._fifo.write(mic)
-        out = meeting_out(f.e)
+        e._fifo.write(mic)
+        out = meeting_out(e)
         assert np.allclose(out[:, 0], out[:, 1])
         loudest = max(loudest, float(np.abs(out[:, 0] - 0.1).max()))
     assert loudest > 0.05
 
 
 def test_mute_silences_sfx_everywhere_but_not_the_voice():
-    f = Fingers()
-    f.e.add_meeting_mixer(MEET_CFG)
-    f.e.muted = True
-    f.show(THREE, 0.3)
-    f.e._fifo.write(np.full(256, 0.1, np.float32))
-    assert np.allclose(meeting_out(f.e)[:, 0], 0.1)
-    assert not f.e.mixer.render(256).any()
+    e = new_engine()
+    e.add_meeting_mixer(MEET_CFG)
+    e.muted = True
+    e.play("finger_3")
+    e._fifo.write(np.full(256, 0.1, np.float32))
+    assert np.allclose(meeting_out(e)[:, 0], 0.1)
+    assert not e.mixer.render(256).any()
+
+
+def test_list_devices_filters_by_host_api_and_direction(monkeypatch):
+    import sounddevice as sd
+    monkeypatch.setattr(sd, "query_hostapis", lambda: [{"name": "MME"}, {"name": "Windows WASAPI"}])
+    monkeypatch.setattr(sd, "query_devices", lambda: [
+        {"name": "Mic A", "hostapi": 1, "max_input_channels": 1, "max_output_channels": 0},
+        {"name": "Speakers", "hostapi": 1, "max_input_channels": 0, "max_output_channels": 2},
+        {"name": "Mic MME", "hostapi": 0, "max_input_channels": 1, "max_output_channels": 0}])
+    assert audio.list_devices("Windows WASAPI", "input") == ["Mic A"]
+    assert audio.list_devices("Windows WASAPI", "output") == ["Speakers"]
 
 
 # --- video orb ------------------------------------------------------------------
@@ -715,16 +682,6 @@ def test_seal_fires_its_sound_once_per_seal(tmp_path):
         t += DT
         fired += v.update(np.array([640.0, 360.0]) if seal else None, t)
     assert fired == 2
-
-
-def test_pose_sounds_are_optional():
-    poses = {"jutsu": {"sound": "finger_3", "volume": 1.0}, "wow": {"sound": "nope", "volume": 1.0}}
-    e = AudioEngine({**A_CFG, "enabled": False}, FINGER_CFG, None, poses)
-    e.play_pose("jutsu")
-    assert e.mixer._queue.qsize() == 1
-    e.play_pose("wow")                       # no file: silently nothing, no crash
-    assert e.mixer._queue.qsize() == 1
-
 
 
 # --- wow pose ------------------------------------------------------------------------------

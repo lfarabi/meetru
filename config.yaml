@@ -29,21 +29,6 @@ gesture:
   # thumb tip sideways past the index knuckle, in palm lengths. Measured: out +0.3…+0.56, folded −0.2…−0.4
   thumb_out: 0.1         # above → thumb out (3+ fingers = OPEN_PALM); below → folded (4 fingers = FOUR)
 
-finger_sfx:
-  # sound = file name in assets/audio/ without extension (.mp3 .wav .ogg .flac)
-  #   built-in placeholders: finger_1 (beep), finger_2 (swoosh), finger_3 (rise+boom), finger_4 (beat loop)
-  # mode: once = play once when the gesture is formed, stopping early if you let go of it
-  #       loop = repeat for as long as the gesture is held
-  # the downloaded MP3s are gitignored: copy them into assets/audio/ on a new machine
-  # only one sound effect plays at a time: a new one (finger or orb) cuts the previous one
-  hold: 0.3              # seconds a finger gesture must be held before its sound plays: filters counts
-                         # the hand passes through, and gives the 2nd hand of a seal time to show up
-  cooldown: 0.3          # min seconds between replays of the same 'once' sound
-  ONE:   {sound: finger1-sound, mode: once, volume: 1.0}
-  TWO:   {sound: finger2-sound, mode: once, volume: 1.0}
-  THREE: {sound: akh, mode: once, volume: 1.0}
-  FOUR:  {sound: guru-hentikan-guru, mode: once, volume: 1.0}
-
 orb:
   style: video           # video = the clip below, screen-blended; procedural = drawn in code (also the
                          # fallback when the clip is missing: media files are not in git)
@@ -118,8 +103,6 @@ audio:
   master_volume: 0.8
   sfx_volume: 1.0
   charge_volume: 0.6
-  # put activation / charge_loop / blast / power_down (.mp3 .wav .ogg .flac) into
-  # assets/audio/ to replace the synthesized orb placeholders
 
 meeting_audio:
   # Your mic + the sound effects go to VB-CABLE, so meeting participants hear the SFX.
