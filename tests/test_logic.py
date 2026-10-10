@@ -132,7 +132,8 @@ def test_smoother_blends_and_resets_on_loss():
 
 
 # --- orb state machine -------------------------------------------------------
-from gestures import ACTIVE, BLAST, CHARGING, FADING, HIDDEN, OrbMachine  # noqa: E402
+from gestures import (ACTIVE, BLAST, BUILTIN_GESTURES, CHARGING, FADING, HIDDEN, RAISED_FIST, SEAL,  # noqa: E402
+                      TWO_HAND_GESTURES, WOW, OrbMachine)
 
 import yaml  # noqa: E402
 
@@ -243,6 +244,32 @@ def test_finger_gesture_fades_orb_silently():
 
 def test_finger_gesture_does_not_spawn_orb():
     assert Driver().run(THREE, AIM, 0.5) == HIDDEN
+
+
+def test_orb_can_be_summoned_by_another_gesture():
+    m = OrbMachine(M_CFG, trigger=TWO)
+    m.update(TWO, AIM, 0.0)
+    m.update(TWO, AIM, 0.1)
+    assert m.state == ACTIVE
+    m2 = OrbMachine(M_CFG, trigger=TWO)
+    m2.update(OPEN_PALM, AIM, 0.0)
+    assert m2.state == HIDDEN
+
+
+def test_four_tolerance_only_for_open_palm_trigger():
+    m = OrbMachine(M_CFG, trigger=TWO)
+    for i in range(10):
+        m.update(TWO, AIM, i * DT)
+    for i in range(10, 20):
+        m.update(TWO, HOLD, i * DT)
+    assert m.state == CHARGING
+    assert m.update(FOUR, MID, 20 * DT) == FADING     # the thumb tolerance belongs to the open palm only
+
+
+def test_new_gesture_ids():
+    assert (RAISED_FIST, SEAL, WOW) == ("RAISED_FIST", "SEAL", "WOW")
+    assert BUILTIN_GESTURES == (ONE, TWO, THREE, FOUR, OPEN_PALM, FIST, RAISED_FIST, SEAL, WOW)
+    assert TWO_HAND_GESTURES == {SEAL, WOW}
 
 
 # --- audio mixer --------------------------------------------------------------
@@ -586,7 +613,8 @@ def test_missing_orb_video_falls_back_to_procedural():
 
 
 # --- vanishing jutsu --------------------------------------------------------------
-from jutsu import PoseClip, Vanish, load_clip, seal_point, wow_pose  # noqa: E402
+import jutsu  # noqa: E402
+from jutsu import Vanish, load_clip, seal_point, wow_pose  # noqa: E402
 from tracking import Hand  # noqa: E402
 
 TWO_UP_WORLD = hand3d(pick(2), False)[1]  # index + middle raised in 3D
@@ -634,22 +662,25 @@ def test_greenscreen_clip_is_keyed_trimmed_and_cropped(tmp_path):
     assert abs(ax - w / 2) < 3 and abs(ay - h / 2) < 3             # densest part = the disc's center
 
 
-def vanish_cfg(tmp_path):
-    return {"smoke": str(tmp_path / "none.mp4"), "background": str(tmp_path / "bg.png"),
-            "capture_delay": 1, "seal_hold": 0.3, "smoke_height": 1.3}
+def vanish_cfg(tmp_path, smoke=None):
+    return {"smoke": smoke, "background": str(tmp_path / "bg.png"), "capture_delay": 1, "smoke_height": 1.3}
 
 
-def hold_seal(v, t0, seconds, seal=(640, 360)):
+SEAL_AT = np.array([640, 360], np.float32)
+
+
+def run_vanish(v, t0, seconds):
     t = t0
     for _ in range(round(seconds / DT)):
         t += DT
-        v.update(np.array(seal, np.float32) if seal else None, t)
+        v.update(t)
     return t
 
 
 def test_without_a_background_the_seal_explains_instead_of_vanishing(tmp_path):
     v = Vanish(vanish_cfg(tmp_path), (720, 1280, 3))
-    t = hold_seal(v, 0, 1.0)
+    v.fire(SEAL_AT, 0.0)
+    t = run_vanish(v, 0.0, 1.0)
     assert v.mix == 0 and "press B" in v.message(t)
 
 
@@ -662,17 +693,38 @@ def test_capture_then_seal_vanishes_and_seal_again_returns(tmp_path):
         t += DT
         v.capture_tick(room, t)
     assert v.plate is not None and (tmp_path / "bg.png").exists()
-    t = hold_seal(v, t, 1.0)
-    assert v.mix == 1                        # gone
-    t = hold_seal(v, t, 1.0)
-    assert v.mix == 1                        # still holding the same seal: no flip-flop
-    t = hold_seal(v, t, 0.2, seal=None)      # let go
-    t = hold_seal(v, t, 1.0)
+    v.fire(SEAL_AT, t)
+    assert v.busy
+    t = run_vanish(v, t, 1.0)
+    assert v.mix == 1 and not v.busy         # gone
+    v.fire(SEAL_AT, t)
+    t = run_vanish(v, t, 1.0)
     assert v.mix == 0                        # back
     frame = np.zeros((720, 1280, 3), np.uint8)
     v.mix = 1
     v.apply_plate(frame)
     assert frame.mean() == 90                # the empty room replaces the camera image
+
+
+def test_fire_while_the_vanish_is_running_is_ignored(tmp_path):
+    v = Vanish(vanish_cfg(tmp_path), (720, 1280, 3))
+    v.plate = np.full((720, 1280, 3), 90, np.uint8)
+    v.fire(SEAL_AT, 0.0)
+    t = run_vanish(v, 0.0, 0.2)
+    v.fire(SEAL_AT, t)                       # a second seal mid-puff must not flip the target back
+    t = run_vanish(v, t, 1.0)
+    assert v.mix == 1
+
+
+def test_smoke_is_optional(tmp_path, monkeypatch):
+    monkeypatch.setattr(jutsu, "_load", lambda *a: pytest.fail("no smoke configured, nothing to load"))
+    v = Vanish(vanish_cfg(tmp_path, smoke=None), (720, 1280, 3))
+    v.plate = np.full((720, 1280, 3), 90, np.uint8)
+    v.fire(SEAL_AT, 0.0)
+    assert 0 < run_vanish(v, 0.0, 0.25) and 0 < v.mix < 1   # plain crossfade, no clip
+    run_vanish(v, 0.25, 0.5)
+    assert v.mix == 1
+    v.draw_smoke(np.zeros((720, 1280, 3), np.uint8), 0.1)   # nothing to draw, nothing breaks
 
 
 def test_primary_hand_follows_the_same_hand_not_the_list_order():
@@ -703,15 +755,6 @@ def test_exclusive_sound_cannot_be_interrupted_and_silences_loops():
     mx.play("blast")
     mx.render(256)
     assert [v[0] for v in mx._voices if not v[4]] == ["blast"]      # normal again afterwards
-
-
-def test_seal_fires_its_sound_once_per_seal(tmp_path):
-    v = Vanish(vanish_cfg(tmp_path), (720, 1280, 3))
-    fired, t = 0, 0.0
-    for seal in [True] * 40 + [False] * 5 + [True] * 40:
-        t += DT
-        fired += v.update(np.array([640.0, 360.0]) if seal else None, t)
-    assert fired == 2
 
 
 # --- wow pose ------------------------------------------------------------------------------
@@ -758,19 +801,6 @@ def test_dull_green_screen_keys_cleanly_and_keeps_its_framing(tmp_path):
     assert clip.source_width == 160 and clip.origin[0] >= 95  # crop remembers it sat on the right
 
 
-def test_pose_clip_plays_once_per_pose(tmp_path):
-    write_dull_green_clip(tmp_path / "wow.mp4")
-    pc = PoseClip({"clip": str(tmp_path / "wow.mp4"), "hold": 0.3}, "Wow")
-    fired, t = 0, 0.0
-    for posed in [True] * 40 + [False] * 5 + [True] * 10:
-        t += DT
-        fired += pc.update(posed, t)
-    assert fired == 2
-    frame = np.zeros((360, 640, 3), np.uint8)
-    pc.draw(frame, t)
-    assert frame[:, 400:].max() > 100 and frame[:, :300].max() == 0   # full-frame, on the right as framed
-
-
 # --- raised fist → Figure ---------------------------------------------------------------------
 from jutsu import raised_fist  # noqa: E402
 
@@ -783,28 +813,6 @@ def test_raised_fist_needs_the_fist_up_high():
     lm[0, 1] = 600                                         # fist down by the desk
     assert not raised_fist(FIST, lm, 720, 0.6)
     assert not raised_fist(FIST, None, 720, 0.6)
-
-
-def test_while_held_clip_fades_out_when_let_go_and_sits_in_the_corner(tmp_path):
-    write_dull_green_clip(tmp_path / "c.mp4", n=60)
-    cfg = {"clip": str(tmp_path / "c.mp4"), "hold": 0.1, "while_held": True, "placement": "corner",
-           "height": 0.8, "side": "left"}
-    pc, t = PoseClip(cfg, "Test"), 0.0
-    for _ in range(6):
-        t += DT
-        pc.update(True, t)
-    assert pc.busy
-    frame = np.zeros((360, 640, 3), np.uint8)
-    pc.draw(frame, t)
-    assert frame[-5:, -60:].max() > 100 and frame[:60, :300].max() == 0   # preview-left = output right, on the bottom
-    for _ in range(3):
-        t += DT
-        pc.update(False, t)
-    assert pc.busy                                          # still fading
-    for _ in range(4):
-        t += DT
-        pc.update(False, t)
-    assert not pc.busy                                      # gone ~0.2 s after letting go
 
 
 def test_hold_trigger_rides_out_short_tracker_dropouts():

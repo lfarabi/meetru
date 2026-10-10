@@ -22,8 +22,8 @@ gesture:
   debounce_frames: 3     # consecutive frames needed before a gesture change is accepted
   lost_frames: 5         # frames without a hand before reporting NO_HAND
   two_hand_grace: 0.6    # seconds after two hands were seen during which a lone hand counts as half of a
-                         # two-hand pose (crossed hands often hide one from the tracker): no finger SFX,
-                         # raised fist or orb
+                         # two-hand pose (crossed hands often hide one from the tracker): one-hand jurus
+                         # don't fire
   # finger counting (3D, rotation-free). Measured: raised fingers ≥ 0.94, folded ≤ 0.71
   finger_straight: 0.82  # a finger counts as raised above this straightness (knuckle→tip / finger length)
   # thumb tip sideways past the index knuckle, in palm lengths. Measured: out +0.3…+0.56, folded −0.2…−0.4
@@ -62,37 +62,10 @@ blast:
   duration: 0.6
   cooldown: 1.0          # seconds after a blast before a new orb can spawn
 
-vanish:
-  # seal seal (both hands, two fingers each, crossed) → smoke puff → you vanish; seal again → back.
-  smoke: assets/video/smoke.mp4        # green-screen smoke clip (keyed automatically)
-  background: assets/background.png    # empty-room photo shown instead of you; press B to capture (not in git)
-  capture_delay: 5       # seconds to leave the frame after pressing B
-  seal_hold: 0.3         # seconds the seal must be held
-  gap: 0.3               # tracker dropouts shorter than this (crossed hands hide one) don't break the seal
+vanish_defaults:
+  # used by the vanish visual of a jurus (smoke clip and room photo are set per jurus)
+  capture_delay: 5       # seconds to leave the frame after pressing B (empty-room photo for the vanish)
   smoke_height: 1.8      # smoke size relative to the frame height (its densest puff lands on the seal)
-  sound: seal_sound   # assets/audio/<name>.mp3, played every time the seal fires; nothing else
-  volume: 1.0                   # sounds (orb, blast, finger SFX, loops) until it has finished
-
-wow:
-  # both open hands together under the chin, fingers up → reaction clip + sound (also exclusive)
-  clip: assets/video/wow.mp4     # green-screen clip, shown full-frame as it was framed
-  placement: frame
-  sound: anime-wow-sound-effect
-  volume: 1.0
-  hold: 0.3                      # seconds the pose must be held
-  gap: 0.3                       # tracker dropouts shorter than this don't break the pose
-
-figure:
-  # raised fist → "Raised-fist sound!" + Figure keyed out of his green-screen clip, while the fist stays up
-  clip: assets/video/surprise.mp4   # one-colour background (keyed); a video without one is shown as-is
-  sound: raised-fist-sound
-  volume: 1.0
-  hold: 0.3
-  raise_above: 0.6               # the fist (wrist) must be in the top 60% of the frame
-  while_held: true               # the clip fades out when the fist comes down
-  placement: corner
-  height: 0.8                    # of the frame height, standing on the bottom edge
-  side: left                     # as seen in your mirrored preview (the meeting sees it on the right)
 
 audio:
   enabled: true

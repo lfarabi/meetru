@@ -10,7 +10,7 @@ import yaml
 
 from audio import AudioEngine
 from gestures import FIST, FOUR, HIDDEN, NO_HAND, ONE, OPEN_PALM, THREE, TWO, GestureClassifier, OrbMachine
-from jutsu import PoseClip, Vanish, raised_fist, seal_point, wow_pose
+from jutsu import Vanish, raised_fist, seal_point, wow_pose
 from orb import EnergyOrb, occlude_by_hand, orb_anchor
 from tracking import CONNECTIONS, WRIST, HandTracker, Smoother, palm_normal, pick_primary
 

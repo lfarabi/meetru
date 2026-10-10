@@ -6,6 +6,9 @@ from tracking import FINGERS, FINGERTIPS, INDEX_MCP, PINKY_MCP, WRIST, palm_cent
 NO_HAND, OPEN_PALM, FIST = "NO_HAND", "OPEN_PALM", "FIST"
 ONE, TWO, THREE, FOUR = "ONE", "TWO", "THREE", "FOUR"
 FINGER_GESTURES = (ONE, TWO, THREE, FOUR)  # counted raised fingers, thumb folded
+RAISED_FIST, SEAL, WOW = "RAISED_FIST", "SEAL", "WOW"  # fist held up high; crossed two-finger seal; open hands under the chin
+BUILTIN_GESTURES = (ONE, TWO, THREE, FOUR, OPEN_PALM, FIST, RAISED_FIST, SEAL, WOW)
+TWO_HAND_GESTURES = {SEAL, WOW}
 THUMB_TIP = 4
 
 
@@ -89,15 +92,16 @@ HIDDEN, ACTIVE, CHARGING, BLAST, FADING = "HIDDEN", "ACTIVE", "CHARGING", "BLAST
 class OrbMachine:
     """Explicit orb state machine.
 
-    Open palm summons the orb. Holding it with the palm turned away from the camera (up, sideways)
-    charges it; turning the palm to face the camera throws it: a blast if it was held for at least
+    `trigger` (the open palm by default) summons the orb. Holding it with the palm turned away from
+    the camera (up, sideways) charges it; turning the palm to face the camera throws it: a blast if it was held for at least
     `charge.min_time`, otherwise it just stays. `facing` is how squarely the palm faces the camera
     (1 = straight at it, negative = turned away); two thresholds with a gap between keep the state
-    from flickering while the hand rotates. A fist extinguishes the orb.
+    from flickering while the hand rotates. Any other gesture extinguishes the orb.
     """
 
-    def __init__(self, cfg: dict):
+    def __init__(self, cfg: dict, trigger: str = OPEN_PALM):
         self.o, self.c, self.b = cfg["orb"], cfg["charge"], cfg["blast"]
+        self.trigger = trigger
         self.state = HIDDEN
         self.silent_fade = False  # faded because a finger-count gesture took over (no power-down SFX)
         self.presence = 0.0      # 0..1 fade in/out
@@ -116,16 +120,16 @@ class OrbMachine:
         holding = facing is not None and facing < self.b["hold_below"]
 
         if s == HIDDEN:
-            if gesture == OPEN_PALM and t >= self._cooldown_until:
+            if gesture == self.trigger and t >= self._cooldown_until:
                 self.state = ACTIVE
         elif s == FADING:
-            if gesture == OPEN_PALM:
+            if gesture == self.trigger:
                 self.state = ACTIVE
             elif self.presence <= 0:
                 self.state = HIDDEN
         elif s in (ACTIVE, CHARGING):
             # while charging, FOUR is still the open hand: the thumb often reads as folded mid-turn
-            open_hand = gesture == OPEN_PALM or (s == CHARGING and gesture == FOUR)
+            open_hand = gesture == self.trigger or (s == CHARGING and self.trigger == OPEN_PALM and gesture == FOUR)
             if not open_hand:
                 self.state, self.silent_fade = FADING, gesture in FINGER_GESTURES
             elif s == ACTIVE and holding:

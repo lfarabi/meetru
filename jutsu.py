@@ -1,8 +1,8 @@
-"""Two-hand poses that play green-screen clips.
+"""Pose detectors and the vanishing effect; whoever decides a pose fired (rules) drives Vanish.
 
-- Vanishing jutsu: the crossed two-finger seal (seal) plays a smoke puff and, under its
-  densest moment, swaps you for a captured empty-room plate (or brings you back).
-- Wow: both open hands together under the chin plays a full-frame reaction clip.
+- Vanishing jutsu: fire() plays a smoke puff and, under its densest moment, swaps you for a captured
+  empty-room plate (or brings you back). The crossed two-finger seal (seal) is its default trigger.
+- Detectors: seal_point, wow_pose (both open hands together under the chin), raised_fist.
 """
 import logging
 from pathlib import Path
@@ -232,8 +232,7 @@ class Vanish:
         plate_path = Path(cfg["background"])
         if plate_path.exists():
             self.plate = cv2.resize(cv2.imread(str(plate_path)), (frame_shape[1], frame_shape[0]))
-        self.clip = _load(cfg["smoke"], "Smoke")
-        self._trigger = HoldTrigger(cfg["seal_hold"], cfg.get("gap", 0.0))
+        self.clip = _load(cfg["smoke"], "Smoke") if cfg["smoke"] else None  # smoke is optional: plain crossfade
         self._start, self._at, self._from, self._to = None, None, 0.0, 0.0
         self._capture_at, self._captured = None, []
 
@@ -266,28 +265,31 @@ class Vanish:
             self._say("Empty room captured", t)
             log.info("Background plate saved to %s", self.cfg["background"])
 
-    def update(self, seal: np.ndarray | None, t: float) -> bool:
-        """Call once per frame with seal_point(); holding the seal toggles you out/in once.
-        Returns True on the frame the seal fires (for its sound)."""
-        fired = self._trigger.update(seal is not None, t, allowed=not self.busy)
-        if fired:
-            self._start, self._at, self._from = t, seal, self.mix
-            if self.plate is None:
-                self._to = 0.0
-                self._say("No empty-room background yet: press B first", t)
-            else:
-                self._to = 1.0 - round(self.mix)
+    def fire(self, at: np.ndarray, t: float):
+        """Toggle you out/in, the smoke puff centered on `at`; ignored while a vanish is running.
+        With no room photo yet it explains instead of vanishing."""
         if self.busy:
-            if self.clip:
-                i = (t - self._start) * self.clip.fps
-                w, done = _smoothstep((i - self.clip.peak + 6) / 12), i >= len(self.clip.frames)  # swap under the densest puff
-            else:
-                w = _smoothstep((t - self._start) / 0.5)
-                done = w >= 1
-            self.mix = self._from + (self._to - self._from) * w
-            if done:
-                self.mix, self._start = self._to, None
-        return fired
+            return
+        self._start, self._at, self._from = t, at, self.mix
+        if self.plate is None:
+            self._to = 0.0
+            self._say("No empty-room background yet: press B first", t)
+        else:
+            self._to = 1.0 - round(self.mix)
+
+    def update(self, t: float):
+        """Call once per frame to advance the mix."""
+        if not self.busy:
+            return
+        if self.clip:
+            i = (t - self._start) * self.clip.fps
+            w, done = _smoothstep((i - self.clip.peak + 6) / 12), i >= len(self.clip.frames)  # swap under the densest puff
+        else:
+            w = _smoothstep((t - self._start) / 0.5)
+            done = w >= 1
+        self.mix = self._from + (self._to - self._from) * w
+        if done:
+            self.mix, self._start = self._to, None
 
     def apply_plate(self, frame: np.ndarray):
         if self.plate is not None and self.mix > 0:
@@ -302,56 +304,3 @@ class Vanish:
         scale = self.cfg["smoke_height"] * frame.shape[0] / self.clip.frames[0][0].shape[0]
         ax, ay = self.clip.anchor
         draw_clip(frame, self.clip, i, int(self._at[0] - ax * scale), int(self._at[1] - ay * scale), scale)  # densest puff on the seal
-
-
-RELEASE_FADE = 0.2  # seconds a while_held clip takes to fade out once the pose is let go
-
-
-class PoseClip:
-    """Plays a clip once each time a pose is held.
-
-    cfg: clip, hold; optional while_held (stop, fading, when the pose is let go), placement "frame" (full
-    frame, as the clip was framed; default) or "corner" (standing on the bottom edge, `height` of
-    the frame tall, on `side` as seen in the mirrored preview)."""
-
-    def __init__(self, cfg: dict, what: str):
-        self.cfg = cfg
-        self.clip = _load(cfg["clip"], what)
-        self._trigger = HoldTrigger(cfg["hold"], cfg.get("gap", 0.0))
-        self._start = self._released = None
-
-    @property
-    def busy(self) -> bool:
-        return self._start is not None
-
-    def update(self, posed: bool, t: float, allowed: bool = True) -> bool:
-        """Returns True on the frame the pose fires (for its sound)."""
-        fired = self._trigger.update(posed, t, allowed and not self.busy)
-        if fired and self.clip:
-            self._start, self._released = t, None
-        if self.busy:
-            if self.cfg.get("while_held") and not posed and self._released is None:
-                self._released = t
-            finished = (t - self._start) * self.clip.fps >= len(self.clip.frames)
-            faded = self._released is not None and t - self._released >= RELEASE_FADE
-            if finished or faded:
-                self._start = None
-        return fired
-
-    def draw(self, frame: np.ndarray, t: float):
-        if not self.busy:
-            return
-        i = int((t - self._start) * self.clip.fps)
-        if i >= len(self.clip.frames):
-            return
-        gain = 1.0 if self._released is None else max(0.0, 1 - (t - self._released) / RELEASE_FADE)
-        if self.cfg.get("placement") == "corner":
-            ch, cw = self.clip.frames[0][1].shape
-            scale = self.cfg["height"] * frame.shape[0] / ch
-            # the output is unmirrored, so the preview's left is the frame's right
-            x0 = frame.shape[1] - int(cw * scale) if self.cfg["side"] == "left" else 0
-            draw_clip(frame, self.clip, i, x0, frame.shape[0] - int(ch * scale), scale, gain)
-        else:
-            scale = frame.shape[1] / self.clip.source_width
-            ox, oy = self.clip.origin
-            draw_clip(frame, self.clip, i, int(ox * scale), int(oy * scale), scale, gain)
