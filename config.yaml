@@ -26,6 +26,7 @@ gesture:
                          # don't fire
   # finger counting (3D, rotation-free). Measured: raised fingers ≥ 0.94, folded ≤ 0.71
   finger_straight: 0.82  # a finger counts as raised above this straightness (knuckle→tip / finger length)
+  raise_above: 0.6       # a fist with the wrist in the top 60% of the frame (0 = top edge) is a RAISED_FIST
   # thumb tip sideways past the index knuckle, in palm lengths. Measured: out +0.3…+0.56, folded −0.2…−0.4
   thumb_out: 0.1         # above → thumb out (3+ fingers = OPEN_PALM); below → folded (4 fingers = FOUR)
 
