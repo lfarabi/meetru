@@ -53,6 +53,26 @@ def test_two_hand_template_matches_in_either_order_and_needs_two_hands():
     assert best_match([t], [b, a], b) == "duo" and distance(t, [a], a) is None
 
 
+def test_two_hand_template_cares_how_far_apart_the_hands_are():
+    a = Hand(*hand3d(pick(2), False))
+    lm4, w4 = hand3d(pick(4), True)
+
+    def apart(px):
+        return [a, Hand(lm4 + np.array([px, 0, 0], np.float32), w4)]
+
+    t = make_template("duo", [apart(150)] * 30)
+    near = apart(150)
+    assert best_match([t], near, near[0]) == "duo"
+    for px in (250, 400):  # 250 is only one palm further apart: unweighted, that error stays inside the radius
+        far = apart(px)
+        assert best_match([t], far, far[0]) is None and score(t, far, far[0]) <= 0, px
+
+
+def test_jittery_recording_gets_a_wider_radius_than_the_floor():
+    t = make_template("x", frames_of(hand3d(pick(2), False)[1], noise=0.01))
+    assert t["radius"] > RADIUS_FLOOR
+
+
 def test_recording_without_a_steady_hand_is_refused():
     with pytest.raises(ValueError, match="no_hand"):
         make_template("x", [[]] * 30)

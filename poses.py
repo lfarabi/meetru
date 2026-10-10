@@ -1,4 +1,5 @@
 """Recorded hand poses: build a template from a few seconds of frames, then match live hands to it."""
+import math
 from collections import Counter
 
 import numpy as np
@@ -8,6 +9,7 @@ from tracking import WRIST, Hand, palm_size
 RADIUS_FLOOR = 0.05      # a perfectly still recording would otherwise give a radius no live hand could meet
 DEFAULT_SENSITIVITY = 1.5
 _PAIRS = np.triu_indices(21, 1)
+GAP_WEIGHT = math.sqrt(210)  # one hand descriptor's worth, so how far apart the hands are counts as much as hand shape
 
 
 def hand_descriptor(world: np.ndarray) -> np.ndarray:
@@ -21,12 +23,12 @@ def hand_descriptor(world: np.ndarray) -> np.ndarray:
 
 def _descriptor(hands: list[Hand]) -> np.ndarray:
     """One hand: its descriptor. Two hands: both, plus how far apart the wrists are (pixels, since each
-    hand's world landmarks are centred on itself) in palm sizes."""
+    hand's world landmarks are centred on itself) in palm sizes, times GAP_WEIGHT."""
     parts = [hand_descriptor(h.world) for h in hands]
     if len(hands) == 2:
         a, b = hands
         gap = np.linalg.norm(a.lm[WRIST, :2] - b.lm[WRIST, :2]) / np.mean([palm_size(a.lm), palm_size(b.lm)])
-        parts.append(np.array([gap]))
+        parts.append(np.array([gap * GAP_WEIGHT]))
     return np.concatenate(parts)
 
 
