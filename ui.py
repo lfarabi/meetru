@@ -1,15 +1,22 @@
-"""The MeetCam window: live preview, status lights, the main buttons and the Settings tab."""
+"""The MeetCam window: live preview, status lights, the main buttons, the Jurus tab (with its editor) and the
+Settings tab."""
 import logging
+from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QKeySequence, QPixmap, QShortcut
-from PySide6.QtMultimedia import QMediaDevices
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
-                               QPushButton, QSizePolicy, QTabWidget, QVBoxLayout, QWidget)
+from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtGui import QColor, QKeySequence, QPixmap, QShortcut
+from PySide6.QtMultimedia import QAudioOutput, QMediaDevices, QMediaPlayer
+from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
+                               QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+                               QMainWindow, QMessageBox, QPushButton, QSizePolicy, QSlider, QTabWidget, QVBoxLayout,
+                               QWidget)
 
 import audio
 from engine import Engine
+from gestures import BUILTIN_GESTURES
 from i18n import t
+from overlay import POSITIONS
+from rules import ORB_SOUNDS, _number, build, valid_templates
 
 log = logging.getLogger(__name__)
 
@@ -68,7 +75,7 @@ class SettingsTab(QWidget):
 
         self.camera, self.mic, self.speaker, self.meeting, self.language = (QComboBox() for _ in range(5))
         self.vcam, self.mirror = QCheckBox(t("set_vcam")), QCheckBox(t("set_mirror"))
-        self.language_note = QLabel("")
+        self.language_note = QLabel("", wordWrap=True)
         combos = {"camera_index": (self.camera, [(c, i) for i, c in enumerate(cameras)]),
                   "mic": (self.mic, default + [(n, n) for n in inputs]),
                   "speaker": (self.speaker, default + [(n, n) for n in outputs]),
@@ -99,6 +106,455 @@ class SettingsTab(QWidget):
         save_setting(self.store, self.engine, key, value)
         if key == "language":
             self.language_note.setText(t("restart_for_language"))
+
+
+SOUND_FILES = ("filter_sound", "*.mp3 *.wav *.ogg *.flac")   # (text key for the dialog's filter, its patterns)
+IMAGE_FILES = ("filter_image", "*.png *.jpg *.jpeg *.gif")
+VIDEO_FILES = ("filter_video", "*.mp4 *.mov *.webm *.avi")
+VISUALS = ("none", "image", "video", "text", "orb", "vanish")
+FILE_VISUALS = ("image", "video", "orb", "vanish")           # the visuals that take a file (the last two optionally)
+SHAPED_VISUALS = ("image", "video", "text")                  # the visuals with a position, size and duration
+CHOOSE_FILE = "choose-file"                                  # the sound picker's "File..." entry; not a real reference
+
+
+def _dict(x) -> dict:
+    """A hand-edited jurus.yaml may hold anything where a mapping belongs."""
+    return x if isinstance(x, dict) else {}
+
+
+def pick_file(parent, store, kind: tuple[str, str]) -> str | None:
+    """Ask for a media file and copy it into the store: its `media/...` reference, or None if the user cancelled
+    or it could not be copied."""
+    label, patterns = kind
+    path, _ = QFileDialog.getOpenFileName(parent, t("pick_title"), "", f"{t(label)} ({patterns})")
+    if not path:
+        return None
+    try:
+        return store.import_media(path)
+    except OSError as e:
+        QMessageBox.warning(parent, "MeetCam", t("err_import", error=e))
+        return None
+
+
+def gesture_label(gesture) -> str:
+    gesture = str(gesture or "")
+    if gesture in BUILTIN_GESTURES:
+        return t("g_" + gesture)
+    return "🖐 " + gesture[len("rec:"):] if gesture.startswith("rec:") else gesture
+
+
+class FileField(QWidget):
+    """A button that picks a media file (copied into the store) and shows its name; ✕ forgets it."""
+
+    def __init__(self, store, kind: tuple[str, str], empty: str):
+        super().__init__()
+        self.store, self.kind, self.empty, self.ref = store, kind, empty, None
+        self.button, self.clear = QPushButton(), QPushButton("✕")
+        self.button.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)  # a long name is cut, not widening the dialog
+        self.clear.setToolTip(t("clear_file"))
+        self.clear.setFixedWidth(28)
+        self.button.clicked.connect(lambda: self._pick())
+        self.clear.clicked.connect(lambda: self.set_ref(None))
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(self.button, 1)
+        row.addWidget(self.clear)
+        self.set_ref(None)
+
+    def configure(self, kind: tuple[str, str], empty: str):
+        """Now for another kind of file: the one chosen before is forgotten."""
+        self.kind, self.empty = kind, empty
+        self.set_ref(None)
+
+    def set_ref(self, ref: str | None):
+        self.ref = ref or None
+        self.button.setText(Path(ref).name if ref else self.empty)
+        self.clear.setVisible(bool(ref))
+
+    def _pick(self):
+        if ref := pick_file(self, self.store, self.kind):
+            self.set_ref(ref)
+
+
+class JurusEditor(QDialog):
+    """Make or change one jurus: its gesture, an optional sound and an optional visual. `taken` holds the
+    one-of-a-kind visuals ("orb", "vanish") that the other jurus use, `names` their names. `engine` is only
+    for the sound preview."""
+
+    def __init__(self, store, jurus: dict | None, taken: set[str], engine=None, names=(), parent=None):
+        super().__init__(parent)
+        self.store, self.engine, self.names = store, engine, set(names)
+        self._player = self._out = None   # the media preview, made on first use and kept alive here
+        j = _dict(jurus)
+        sound, visual, orb_sounds = _dict(j.get("sound")), _dict(j.get("visual")), _dict(j.get("orb_sounds"))
+        self._enabled = bool(j.get("enabled", True))   # switched in the list, not here
+        self.setWindowTitle(t("editor_edit" if jurus else "editor_new"))
+        self.setMinimumWidth(420)
+
+        self.name = QLineEdit(str(j.get("name", "")))
+        self.gesture = QComboBox()
+        for g in BUILTIN_GESTURES:
+            self.gesture.addItem(t("g_" + g), g)
+        for template in valid_templates(store.load_gestures()):
+            self.gesture.addItem("🖐 " + template["name"], "rec:" + template["name"])
+        saved = str(j.get("gesture", BUILTIN_GESTURES[0]))
+        if self.gesture.findData(saved) < 0:   # a deleted recording: shown and kept, not silently replaced
+            self.gesture.addItem("⚠ " + saved, saved)
+        self.gesture.setCurrentIndex(self.gesture.findData(saved))
+
+        self.sound_src = QComboBox()
+        self.sound_src.addItem(t("choice_none"), "")
+        for sound_name in audio.BUILTIN_SOUNDS:
+            self.sound_src.addItem(sound_name, "builtin:" + sound_name)
+        self.sound_src.addItem(t("sound_file_item"), CHOOSE_FILE)
+        self._sound_prev = ""
+        self.preview_btn = QPushButton("▶")
+        self.preview_btn.setToolTip(t("play_preview"))
+        self.preview_btn.setFixedWidth(32)
+        self.sound_row = self._row(self.sound_src, self.preview_btn)
+        self.sound_mode = QComboBox()
+        self.sound_mode.addItem(t("mode_once"), "once")
+        self.sound_mode.addItem(t("mode_loop"), "loop")
+        self.volume, self.volume_label = QSlider(Qt.Horizontal), QLabel()
+        self.volume.setRange(0, 100)
+        self.volume_row = self._row(self.volume, self.volume_label)
+
+        self.visual_type = QComboBox()
+        for kind in VISUALS:
+            self.visual_type.addItem(t("choice_none" if kind == "none" else "v_" + kind), kind)
+            if kind in taken:   # there can be only one of these
+                self.visual_type.model().item(self.visual_type.count() - 1).setEnabled(False)
+        self.visual_file = FileField(store, IMAGE_FILES, "")
+        self.text = QLineEdit()
+        self.color = "#ffffff"
+        self.color_btn = QPushButton()
+        self.position = QComboBox()
+        for p in POSITIONS:
+            self.position.addItem(t("pos_" + p), p)
+        self.visual_size = QDoubleSpinBox()
+        self.visual_size.setRange(0.05, 3.0)
+        self.visual_size.setSingleStep(0.05)
+        self.visual_size.setDecimals(2)
+        self.held, self.seconds = QCheckBox(t("dur_held")), QDoubleSpinBox()
+        self.seconds.setRange(0.1, 60.0)
+        self.seconds.setSingleStep(0.5)
+        self.seconds.setDecimals(2)
+        self.seconds.setSuffix(" s")
+        self.duration_row = self._row(self.held, self.seconds)
+        self.orb_files = {k: FileField(store, SOUND_FILES, t("device_default")) for k in ORB_SOUNDS}
+
+        self.hold = QDoubleSpinBox()
+        self.hold.setRange(0.0, 3.0)
+        self.hold.setSingleStep(0.1)
+        self.hold.setDecimals(2)
+        self.hold.setSuffix(" s")
+        self.exclusive = QCheckBox(t("ed_exclusive"))
+        hint = QLabel(t("exclusive_hint"), wordWrap=True)
+        hint.setStyleSheet("color: gray")
+
+        self.form = form = QFormLayout(self)
+        form.addRow(t("ed_name"), self.name)
+        form.addRow(t("ed_gesture"), self.gesture)
+        form.addRow(t("ed_sound"), self.sound_row)
+        form.addRow(t("ed_mode"), self.sound_mode)
+        form.addRow(t("ed_volume"), self.volume_row)
+        form.addRow(t("ed_visual"), self.visual_type)
+        self.file_label = QLabel()   # says which file, per visual type
+        form.addRow(self.file_label, self.visual_file)
+        form.addRow(t("ed_text"), self.text)
+        form.addRow(t("ed_color"), self.color_btn)
+        form.addRow(t("ed_position"), self.position)
+        form.addRow(t("ed_size"), self.visual_size)
+        form.addRow(t("ed_duration"), self.duration_row)
+        for key, field in self.orb_files.items():
+            form.addRow(t("orb_" + key), field)
+        form.addRow(t("ed_hold"), self.hold)
+        form.addRow(self.exclusive)
+        form.addRow(hint)
+        box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        box.button(QDialogButtonBox.Ok).setText(t("btn_ok"))
+        box.button(QDialogButtonBox.Cancel).setText(t("btn_cancel"))
+        box.accepted.connect(self.accept)
+        box.rejected.connect(self.reject)
+        form.addRow(box)
+
+        # show what the jurus holds; the type goes first, as it decides what kind of file the picker takes
+        self.visual_type.setCurrentIndex(max(self.visual_type.findData(visual.get("type")), 0))
+        self._retype()
+        self._select_sound(sound["file"] if isinstance(sound.get("file"), str) else "")
+        self.sound_mode.setCurrentIndex(max(self.sound_mode.findData(sound.get("mode")), 0))
+        self.volume.setValue(round(_number(sound.get("volume"), 1.0) * 100))
+        if isinstance(visual.get("file"), str):
+            self.visual_file.set_ref(visual["file"])
+        self.text.setText(str(visual.get("text", "")))
+        self._set_color(str(visual.get("color", self.color)))
+        i = self.position.findData(visual.get("position"))
+        self.position.setCurrentIndex(i if i >= 0 else self.position.findData("center"))
+        self.visual_size.setValue(_number(visual.get("size"), 0.4))
+        duration = visual.get("duration", "held")
+        self.held.setChecked(not isinstance(duration, (int, float)))
+        self.seconds.setValue(_number(duration, 2.0))
+        for key, field in self.orb_files.items():
+            if isinstance(orb_sounds.get(key), str):
+                field.set_ref(orb_sounds[key])
+        self.hold.setValue(_number(j.get("hold"), 0.3))
+        self.exclusive.setChecked(bool(j.get("exclusive")))
+
+        self.sound_src.currentIndexChanged.connect(self._sound_changed)
+        self.sound_mode.currentIndexChanged.connect(self._sync)
+        self.volume.valueChanged.connect(self._sync)
+        self.visual_type.currentIndexChanged.connect(self._retype)
+        self.held.toggled.connect(self._sync)
+        self.color_btn.clicked.connect(self._pick_color)
+        self.preview_btn.clicked.connect(self._preview)
+        self._sync()
+
+    @staticmethod
+    def _row(*widgets) -> QWidget:
+        """The widgets side by side as one form row."""
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        for w in widgets:
+            layout.addWidget(w, 1 if isinstance(w, (QComboBox, QSlider)) else 0)
+        return row
+
+    # --- the fields that depend on each other ---------------------------------------
+    def _retype(self):
+        """A new visual type: its file picker takes another kind of file, and the old file goes."""
+        kind = self.visual_type.currentData()
+        if kind in FILE_VISUALS:
+            empty = {"image": "pick_file", "video": "pick_file", "orb": "device_default", "vanish": "choice_none"}[kind]
+            self.visual_file.configure(IMAGE_FILES if kind == "image" else VIDEO_FILES, t(empty))
+            self.file_label.setText(t("ed_file_" + kind))
+        self._sync()
+
+    def _sync(self):
+        """Show the rows that apply to the sound and the visual chosen; a looping sound can't be exclusive."""
+        kind, ref = self.visual_type.currentData(), self.sound_src.currentData()
+        has_sound = kind != "orb" and bool(ref)   # an orb plays its own sounds
+        loop = has_sound and self.sound_mode.currentData() == "loop"
+        shaped = kind in SHAPED_VISUALS
+        for widget, shown in ((self.sound_row, kind != "orb"), (self.sound_mode, has_sound),
+                              (self.volume_row, has_sound), (self.visual_file, kind in FILE_VISUALS),
+                              (self.text, kind == "text"), (self.color_btn, kind == "text"),
+                              (self.position, shaped), (self.visual_size, shaped), (self.duration_row, shaped),
+                              *((f, kind == "orb") for f in self.orb_files.values())):
+            self.form.setRowVisible(widget, shown)
+        self.preview_btn.setEnabled(has_sound)
+        self.volume_label.setText(f"{self.volume.value()}%")
+        self.seconds.setEnabled(not self.held.isChecked())
+        if loop:
+            self.exclusive.setChecked(False)
+        self.exclusive.setEnabled(not loop)
+        if self.isVisible():
+            self.adjustSize()
+
+    def _select_sound(self, ref: str):
+        i = self.sound_src.findData(ref)
+        if i < 0:   # a file picked now, or saved earlier: listed by its file name, before "File..."
+            i = self.sound_src.count() - 1
+            self.sound_src.insertItem(i, ref.rsplit("/", 1)[-1], ref)
+        self._sound_prev = ref
+        self.sound_src.setCurrentIndex(i)
+
+    def _sound_changed(self, i: int):
+        if self.sound_src.itemData(i) == CHOOSE_FILE:
+            ref = pick_file(self, self.store, SOUND_FILES)
+            self.sound_src.blockSignals(True)   # going back to a real entry must not ask again
+            self._select_sound(ref or self._sound_prev)
+            self.sound_src.blockSignals(False)
+        else:
+            self._sound_prev = self.sound_src.itemData(i)
+        self._sync()
+
+    def _set_color(self, color: str):
+        if QColor(color).isValid():
+            self.color = QColor(color).name()   # "#rrggbb"
+        ink = "black" if QColor(self.color).lightness() > 128 else "white"
+        self.color_btn.setStyleSheet(f"background: {self.color}; color: {ink}")
+        self.color_btn.setText(self.color)
+
+    def _pick_color(self):
+        color = QColorDialog.getColor(QColor(self.color), self)
+        if color.isValid():   # not cancelled
+            self._set_color(color.name())
+
+    def _preview(self):
+        """Play the chosen sound once, at the chosen volume. A problem is logged: a preview must never crash."""
+        ref, volume = self.sound_src.currentData(), self.volume.value() / 100
+        try:
+            if ref.startswith("builtin:"):
+                if sounds := getattr(self.engine, "audio", None):   # the engine opens it when it starts
+                    sounds.play(ref[len("builtin:"):], volume)
+            elif path := self.store.resolve(ref):
+                if self._player is None:
+                    self._out = QAudioOutput(self)
+                    self._player = QMediaPlayer(self)
+                    self._player.setAudioOutput(self._out)
+                self._out.setVolume(volume)
+                self._player.setSource(QUrl.fromLocalFile(str(path)))
+                self._player.play()
+        except Exception:
+            log.exception("Could not play the preview of %s", ref)
+
+    # --- the result ---------------------------------------------------------------------
+    def value(self) -> dict:
+        """The jurus as jurus.yaml holds it: no `sound`, `visual` or `orb_sounds` key when there is none."""
+        out = {"name": self.name.text().strip(), "enabled": self._enabled, "gesture": self.gesture.currentData(),
+               "hold": self.hold.value(), "exclusive": self.exclusive.isChecked()}
+        kind, ref = self.visual_type.currentData(), self.sound_src.currentData()
+        if ref and kind != "orb":
+            out["sound"] = {"file": ref, "mode": self.sound_mode.currentData(), "volume": self.volume.value() / 100}
+        if kind != "none":
+            visual = {"type": kind}
+            if kind == "text":
+                visual.update(text=self.text.text(), color=self.color)
+            elif self.visual_file.ref:
+                visual["file"] = self.visual_file.ref
+            if kind in SHAPED_VISUALS:
+                visual.update(position=self.position.currentData(), size=self.visual_size.value(),
+                              duration="held" if self.held.isChecked() else self.seconds.value())
+            out["visual"] = visual
+        chosen = {k: f.ref for k, f in self.orb_files.items() if f.ref}
+        if kind == "orb" and chosen:
+            out["orb_sounds"] = chosen
+        return out
+
+    def _problem(self) -> str | None:
+        """What stops the jurus being saved, in words for the user."""
+        name, kind = self.name.text().strip(), self.visual_type.currentData()
+        if not name:
+            return t("err_name_empty")
+        if name in self.names:   # the first jurus with a name is the one that fires
+            return t("err_name_taken", name=name)
+        if kind in ("image", "video") and not self.visual_file.ref:
+            return t("err_need_file")
+        if kind == "text" and not self.text.text().strip():
+            return t("err_need_text")
+        return None
+
+    def accept(self):
+        if problem := self._problem():
+            QMessageBox.warning(self, "MeetCam", problem)   # the dialog stays open
+        else:
+            super().accept()
+
+    def done(self, result):
+        if self._player is not None:
+            self._player.stop()
+        super().done(result)
+
+
+class JurusTab(QWidget):
+    """The jurus list with Add / Edit / Delete / Try. Every change is saved, rebuilt and handed to the engine at once."""
+
+    def __init__(self, store, engine):
+        super().__init__()
+        self.store, self.engine = store, engine
+        self.sr = engine.cfg["audio"]["sample_rate"]
+        self.items = [_dict(c) for c in store.load_jurus()]   # an entry that is no mapping shows as a problem to delete
+        self.list = QListWidget(wordWrap=True)
+        self.list.itemChanged.connect(self._toggled)
+        self.list.itemDoubleClicked.connect(lambda _: self.edit())
+        self.add_btn, self.edit_btn, self.delete_btn, self.try_btn = (
+            QPushButton(t(k)) for k in ("btn_add", "btn_edit", "btn_delete", "btn_try"))
+        for button, action in ((self.add_btn, self.add), (self.edit_btn, self.edit), (self.delete_btn, self.delete),
+                               (self.try_btn, self.try_)):
+            button.clicked.connect(lambda _=False, action=action: action())
+        buttons = QHBoxLayout()
+        for b in (self.add_btn, self.edit_btn, self.delete_btn, self.try_btn):
+            buttons.addWidget(b)
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.list, 1)
+        layout.addLayout(buttons)
+        # ponytail: this builds what the engine has just built, to learn the problems; read them off the engine
+        # if start-up gets slow
+        self._show(self._build()[0])
+
+    def _build(self):
+        templates = valid_templates(self.store.load_gestures())
+        return (*build(self.items, self.store, templates, self.sr), templates)
+
+    def apply(self, show: bool = True):
+        """Save the list, rebuild the jurus from it and hand them to the engine; then redraw the list."""
+        self.store.save_jurus(self.items)
+        # ponytail: media loads in the UI thread on save (a long clip can freeze the window ~1 s); move to a worker
+        # if it bites
+        built = self._build()
+        self.engine.reload(*built)
+        if show:
+            self._show(built[0])
+
+    # --- the list -----------------------------------------------------------------------
+    def _summary(self, cfg: dict) -> str:
+        sound, kind = _dict(cfg.get("sound")).get("file"), _dict(cfg.get("visual")).get("type")
+        parts = [gesture_label(cfg.get("gesture"))]
+        if kind != "orb":   # an orb plays its own sounds
+            parts.append(str(sound).removeprefix("builtin:").rsplit("/", 1)[-1] if sound else t("sum_no_sound"))
+        parts.append(t("v_" + kind) if kind in VISUALS[1:] else t("sum_no_visual"))
+        return f"{cfg.get('name', '')} — " + " · ".join(parts)
+
+    def _show(self, built):
+        """Redraw the list; `built` (the Jurus from rules.build, in the same order) tells which ones have a problem."""
+        row = self.list.currentRow()
+        self.list.blockSignals(True)   # filling the list is not the user ticking boxes
+        self.list.clear()
+        for cfg, j in zip(self.items, built):
+            item = QListWidgetItem(("⚠ " if j.problem else "") + self._summary(cfg))
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked if cfg.get("enabled", True) else Qt.Unchecked)
+            item.setToolTip(t("problem_" + j.problem) if j.problem else "")
+            self.list.addItem(item)
+        self.list.blockSignals(False)
+        self.list.setCurrentRow(min(row, self.list.count() - 1))
+
+    def _toggled(self, item):
+        cfg, on = self.items[self.list.row(item)], item.checkState() == Qt.Checked
+        if on != cfg.get("enabled", True):
+            cfg["enabled"] = on
+            self.apply(show=False)   # a problem doesn't depend on being enabled, so there is nothing to redraw
+
+    # --- the buttons --------------------------------------------------------------------
+    def _selected(self) -> int | None:
+        row = self.list.currentRow()
+        return row if row >= 0 else None
+
+    def _edit(self, index: int | None):
+        others = [c for i, c in enumerate(self.items) if i != index]
+        taken = {_dict(c.get("visual")).get("type") for c in others} & {"orb", "vanish"}
+        names = {str(c.get("name", "")) for c in others}
+        editor = JurusEditor(self.store, None if index is None else self.items[index], taken, engine=self.engine,
+                             names=names, parent=self)
+        value = editor.value() if editor.exec() == QDialog.Accepted else None
+        editor.deleteLater()
+        if value is None:
+            return
+        if index is None:
+            self.items.append(value)
+        else:
+            self.items[index] = value
+        self.apply()
+        self.list.setCurrentRow(len(self.items) - 1 if index is None else index)
+
+    def add(self):
+        self._edit(None)
+
+    def edit(self):
+        if (row := self._selected()) is not None:
+            self._edit(row)
+
+    def delete(self):
+        if (row := self._selected()) is None:
+            return
+        name = self.items[row].get("name", "")
+        if QMessageBox.question(self, "MeetCam", t("confirm_delete", name=name)) == QMessageBox.Yes:
+            del self.items[row]
+            self.apply()
+
+    def try_(self):
+        if (row := self._selected()) is not None:
+            self.engine.try_jurus(str(self.items[row].get("name", "")))
 
 
 class MainWindow(QMainWindow):
@@ -145,7 +601,9 @@ class MainWindow(QMainWindow):
             buttons.addWidget(b)
 
         self.tabs = QTabWidget()
+        self.jurus_tab = JurusTab(store, self.engine)   # the first tab, so the one shown
         self.settings_tab = SettingsTab(store, self.engine, cfg)
+        self.tabs.addTab(self.jurus_tab, t("tab_jurus"))
         self.tabs.addTab(self.settings_tab, t("tab_settings"))
 
         root = QWidget()
