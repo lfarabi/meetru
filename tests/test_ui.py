@@ -10,9 +10,10 @@ from PySide6.QtWidgets import QDialog
 
 import i18n
 import ui
+from gestures import BUILTIN_GESTURES
 from i18n import STRINGS, t
 from store import DEFAULT_JURUS, Store
-from ui import JurusEditor, JurusTab, MainWindow, SettingsTab
+from ui import GestureTab, JurusEditor, JurusTab, MainWindow, SettingsTab
 
 STATUS = {"fps": 25.0, "vcam": True, "meeting": True, "gesture": "NO_HAND", "message": "", "message_args": {},
           "scores": {}, "invisible": False, "effects_on": True, "muted": False}
@@ -625,8 +626,281 @@ def test_the_preview_plays_a_media_file_with_the_media_player(tmp_path, monkeypa
 
 def test_the_jurus_tab_comes_first_and_is_selected(window):
     assert window.tabs.widget(0) is window.jurus_tab and window.tabs.currentWidget() is window.jurus_tab
-    assert window.tabs.tabText(0) == t("tab_jurus") and window.tabs.widget(1) is window.settings_tab
+    assert window.tabs.tabText(0) == t("tab_jurus") and window.tabs.widget(2) is window.settings_tab
 
 
 def test_the_language_note_wraps(window):
     assert window.settings_tab.language_note.wordWrap()
+
+
+# --- the Gesture tab ---------------------------------------------------------------------------
+HAND = {"name": "", "hands": 1, "mean": [0.0] * 210, "radius": 0.05, "sensitivity": 1.5}   # what the engine emits
+
+
+def gesture(name, **over):
+    return {**HAND, "name": name, **over}
+
+
+def gesture_tab(tmp_path, gestures=(), jurus=None):
+    store = Store(tmp_path)
+    store.save_gestures(list(gestures))
+    if jurus is not None:
+        store.save_jurus(jurus)
+    return GestureTab(store, make_engine(store))
+
+
+def buttons(tab):
+    return tab.record_btn, tab.rerecord_btn, tab.rename_btn, tab.delete_btn
+
+
+def ask(monkeypatch, name):
+    """Make the name dialog 'answer' with this name (None: cancelled) instead of opening; returns what it was asked."""
+    asked = []
+
+    def _ask_name(self, title, current=""):
+        asked.append((title, current))
+        return name
+    monkeypatch.setattr(GestureTab, "_ask_name", _ask_name)
+    return asked
+
+
+def window_with(tmp_path, gestures, jurus):
+    store = Store(tmp_path)
+    store.save_gestures(gestures)
+    store.save_jurus(jurus)
+    return MainWindow(store, M_CFG, make_engine(store))
+
+
+def test_recorded_gesture_is_saved_and_offered_in_the_editor(tmp_path, qapp):
+    s = Store(tmp_path)
+    tab = GestureTab(s, make_engine(s))
+    tab.pending_name = "peace"
+    tab.on_recorded({"name": "", "hands": 1, "mean": [0.0] * 210, "radius": 0.05, "sensitivity": 1.5})
+    assert s.load_gestures()[0]["name"] == "peace"
+    assert JurusEditor(s, None, set()).gesture.findData("rec:peace") >= 0
+
+
+def test_rename_updates_jurus_that_use_it(tmp_path, monkeypatch, qapp):
+    other = {**DEFAULT_JURUS[2], "gesture": "rec:keep"}
+    tab = gesture_tab(tmp_path, [gesture("peace"), gesture("keep")],
+                      [{**DEFAULT_JURUS[1], "gesture": "rec:peace"}, other])
+    changed, asked = [], ask(monkeypatch, "victory")
+    tab.gestures_changed.connect(lambda: changed.append(1))
+    tab.recorded_list.setCurrentRow(0)
+    tab.rename_btn.click()
+    store = Store(tmp_path)
+    assert asked == [(t("gest_rename_title"), "peace")] and changed == [1]
+    assert [g["name"] for g in store.load_gestures()] == ["victory", "keep"]
+    assert [j["gesture"] for j in store.load_jurus()] == ["rec:victory", "rec:keep"]
+    assert tab.recorded_list.currentItem().text() == "🖐 victory"
+
+
+@pytest.mark.parametrize("key", ["no_hand", "unsteady"])
+def test_failed_recording_shows_a_message_and_saves_nothing(tmp_path, monkeypatch, qapp, key):
+    shown, titles = [], []
+    monkeypatch.setattr(ui.QMessageBox, "warning",
+                        staticmethod(lambda parent, title, text: (titles.append(title), shown.append(text))))
+    tab = gesture_tab(tmp_path)
+    changed = []
+    tab.gestures_changed.connect(lambda: changed.append(1))
+    tab.pending_name = "peace"
+    tab.record_btn.setEnabled(False)
+    tab.on_recorded(key)
+    assert shown == [t("record_" + key)] and titles == [t("record_failed_title")]
+    assert t("record_" + key) != "record_" + key   # a real sentence, in both languages
+    assert Store(tmp_path).load_gestures() == [] and changed == [] and tab.pending_name is None
+    assert tab.record_btn.isEnabled()
+
+
+def test_record_asks_for_a_name_then_records_and_the_buttons_wait_for_the_result(tmp_path, monkeypatch, qapp):
+    tab = gesture_tab(tmp_path, [gesture("old")])
+    asked = ask(monkeypatch, "peace")
+    assert all(b.isEnabled() for b in buttons(tab))
+    tab.record_btn.click()
+    assert asked == [(t("gest_name_title"), "")] and tab.pending_name == "peace"
+    assert queued(tab.engine) == [("record", ())] and not any(b.isEnabled() for b in buttons(tab))
+    tab.on_recorded(dict(HAND))
+    assert tab.pending_name is None and all(b.isEnabled() for b in buttons(tab))
+    assert [g["name"] for g in Store(tmp_path).load_gestures()] == ["old", "peace"]
+    assert tab.recorded_list.currentItem().text() == "🖐 peace"   # the new one is selected
+
+
+@pytest.mark.parametrize("name, problem", [("", "err_gest_empty"), ("   ", "err_gest_empty"),
+                                           ("old", "err_gest_taken"), ("a:b", "err_gest_colon")])
+def test_a_bad_name_is_refused_with_a_warning_and_nothing_is_recorded(tmp_path, monkeypatch, qapp, name, problem):
+    shown = warnings(monkeypatch)
+    tab = gesture_tab(tmp_path, [gesture("old")])
+    ask(monkeypatch, name)
+    tab.record_btn.click()
+    assert shown == [t(problem, name=name.strip())] and queued(tab.engine) == []
+    assert tab.pending_name is None and all(b.isEnabled() for b in buttons(tab))
+
+
+def test_a_cancelled_name_dialog_does_nothing(tmp_path, monkeypatch, qapp):
+    shown = warnings(monkeypatch)
+    tab = gesture_tab(tmp_path, [gesture("old")])
+    ask(monkeypatch, None)
+    tab.record_btn.click()
+    tab.rename_btn.click()
+    assert shown == [] and queued(tab.engine) == [] and tab.pending_name is None
+    assert [g["name"] for g in Store(tmp_path).load_gestures()] == ["old"]
+
+
+def test_renaming_to_a_taken_name_is_refused_and_to_the_same_name_is_a_no_op(tmp_path, monkeypatch, qapp):
+    shown = warnings(monkeypatch)
+    tab = gesture_tab(tmp_path, [gesture("a"), gesture("b")])
+    changed = []
+    tab.gestures_changed.connect(lambda: changed.append(1))
+    tab.recorded_list.setCurrentRow(0)
+    ask(monkeypatch, "b")
+    tab.rename_btn.click()
+    ask(monkeypatch, "a")
+    tab.rename_btn.click()
+    assert shown == [t("err_gest_taken", name="b")] and changed == []
+    assert [g["name"] for g in Store(tmp_path).load_gestures()] == ["a", "b"]
+
+
+def test_the_name_dialog_is_in_the_app_language(tmp_path, monkeypatch, qapp):
+    i18n.set_language("id")
+    tab = gesture_tab(tmp_path)
+    seen = []
+
+    def fake_exec(self):
+        seen.append((self.windowTitle(), self.labelText(), self.textValue(), self.okButtonText(),
+                     self.cancelButtonText()))
+        self.setTextValue("  Damai  ")
+        return QDialog.Accepted
+    monkeypatch.setattr(ui.QInputDialog, "exec", fake_exec)
+    assert tab._new_name(t("gest_name_title"), "Lama") == "Damai"   # trimmed
+    assert seen == [(t("gest_name_title"), t("gest_name_label"), "Lama", "OK", "Batal")]
+    monkeypatch.setattr(ui.QInputDialog, "exec", lambda self: QDialog.Rejected)
+    assert tab._new_name(t("gest_name_title")) is None
+
+
+def test_rerecord_replaces_the_template_and_keeps_the_sensitivity(tmp_path, qapp):
+    tab = gesture_tab(tmp_path, [gesture("peace", sensitivity=2.2), gesture("other")])
+    tab.recorded_list.setCurrentRow(0)
+    tab.rerecord_btn.click()
+    assert tab.pending_name == "peace" and queued(tab.engine) == [("record", ())]
+    tab.on_recorded({**HAND, "mean": [0.5] * 210, "radius": 0.07, "sensitivity": 1.5})
+    saved = Store(tmp_path).load_gestures()
+    assert [g["name"] for g in saved] == ["peace", "other"]
+    assert saved[0] == {"name": "peace", "hands": 1, "mean": [0.5] * 210, "radius": 0.07, "sensitivity": 2.2}
+
+
+def test_a_result_nobody_asked_for_is_ignored(tmp_path, monkeypatch, qapp):
+    shown = warnings(monkeypatch)
+    tab = gesture_tab(tmp_path)
+    tab.on_recorded(dict(HAND))
+    tab.on_recorded("no_hand")
+    assert Store(tmp_path).load_gestures() == [] and shown == []
+
+
+def test_the_sensitivity_slider_saves_after_a_pause(tmp_path, qapp):
+    tab = gesture_tab(tmp_path, [gesture("peace")])
+    changed = []
+    tab.gestures_changed.connect(lambda: changed.append(1))
+    assert (tab.sens.minimum(), tab.sens.maximum(), tab.sens.value()) == (8, 30, 15)
+    assert tab.sens_value.text() == "1.5×"
+    tab.sens.setValue(22)
+    tab.sens.setValue(23)
+    assert tab.sens_value.text() == "2.3×" and tab._timer.isSingleShot() and tab._timer.interval() == 400
+    assert tab._timer.isActive() and changed == []
+    assert Store(tmp_path).load_gestures()[0]["sensitivity"] == 1.5   # not yet: saving rebuilds the media
+    tab._timer.timeout.emit()
+    assert Store(tmp_path).load_gestures()[0]["sensitivity"] == 2.3 and changed == [1]
+
+
+def test_picking_another_gesture_loads_its_sensitivity_without_saving(tmp_path, qapp):
+    tab = gesture_tab(tmp_path, [gesture("a", sensitivity=1.0), gesture("b", sensitivity=2.5)])
+    assert tab.sens.value() == 10 and tab.sens.isEnabled()
+    tab.recorded_list.setCurrentRow(1)
+    assert tab.sens.value() == 25 and tab.sens_value.text() == "2.5×" and not tab._timer.isActive()
+    assert [g["sensitivity"] for g in Store(tmp_path).load_gestures()] == [1.0, 2.5]
+
+
+def test_the_live_score_bar_follows_the_selected_gesture(tmp_path, qapp):
+    tab = gesture_tab(tmp_path, [gesture("peace"), gesture("other")])
+    bar = tab.score_bar
+    assert (bar.minimum(), bar.maximum(), bar.value(), bar.format()) == (0, 100, 0, "—")
+    tab.on_status({"scores": {"peace": 0.5, "other": 0.9}})
+    assert (bar.value(), bar.format()) == (50, t("score_match"))
+    tab.on_status({"scores": {"peace": 1.7}})
+    assert bar.value() == 100
+    tab.on_status({"scores": {"peace": -0.4}})   # outside the template's tolerance
+    assert (bar.value(), bar.format()) == (0, "%p%")
+    for scores in ({"peace": None}, {"other": 0.9}, {}):   # the hands don't fit, or not known to the engine yet
+        tab.on_status({"scores": scores})
+        assert (bar.value(), bar.format()) == (0, "—")
+    tab.on_status({})
+    assert (bar.value(), bar.format()) == (0, "—")
+    tab.on_status({"scores": {"peace": 0.5, "other": 0.9}})
+    tab.recorded_list.setCurrentRow(1)
+    assert (bar.value(), bar.format()) == (0, "—")   # a new selection starts blank until the next frame
+    tab.on_status({"scores": {"peace": 0.5, "other": 0.9}})
+    assert bar.value() == 90
+
+
+def test_with_no_recording_the_bar_and_slider_idle_and_the_edit_buttons_are_off(tmp_path, qapp):
+    tab = gesture_tab(tmp_path)
+    assert tab.record_btn.isEnabled() and not any(b.isEnabled() for b in buttons(tab)[1:])
+    assert not tab.sens.isEnabled() and tab.sens_value.text() == "" and tab.recorded_list.currentRow() == -1
+    tab.on_status({"scores": {"peace": 0.9}})
+    assert tab.score_bar.value() == 0
+
+
+def test_the_lists_show_the_built_in_gestures_and_the_recordings(tmp_path, qapp):
+    tab = gesture_tab(tmp_path, [gesture("peace"), gesture("clap", hands=2, mean=[0.0] * 421)])
+    assert [tab.builtin_list.item(i).text() for i in range(tab.builtin_list.count())] == \
+        [t("g_" + g) for g in BUILTIN_GESTURES]
+    assert tab.builtin_list.selectionMode() == tab.builtin_list.SelectionMode.NoSelection   # read-only
+    assert [tab.recorded_list.item(i).text() for i in range(tab.recorded_list.count())] == \
+        ["🖐 peace", "🖐 clap" + t("gest_hands2")]
+    assert t("gest_hands2") == " (2 hands)"
+    assert all(b.isEnabled() for b in buttons(tab))   # the first recording is selected
+
+
+def test_a_gestures_file_with_junk_in_it_does_not_break_the_tab_and_keeps_the_junk(tmp_path, monkeypatch, qapp):
+    tab = gesture_tab(tmp_path, ["junk", {"name": "half"}, gesture("peace")])
+    assert tab.recorded_list.count() == 1
+    ask(monkeypatch, "victory")
+    tab.rename_btn.click()
+    saved = Store(tmp_path).load_gestures()
+    assert saved[:2] == ["junk", {"name": "half"}] and saved[2]["name"] == "victory"
+
+
+def test_delete_asks_first_then_removes_the_gesture_and_the_jurus_stays_flagged(tmp_path, monkeypatch, qapp):
+    i18n.set_language("id")
+    store = Store(tmp_path)
+    w = window_with(tmp_path, [gesture("peace")], [{**DEFAULT_JURUS[1], "gesture": "rec:peace"}])
+    tab, jurus = w.gesture_tab, w.jurus_tab
+    assert "⚠" not in jurus.list.item(0).text()
+    shown = press(monkeypatch, t("btn_cancel"))
+    tab.delete_btn.click()
+    assert shown == [{"text": t("confirm_delete_gesture", name="peace"), "buttons": {"Hapus", "Batal"},
+                      "default": "Batal"}]
+    assert [g["name"] for g in store.load_gestures()] == ["peace"]   # cancelled
+    press(monkeypatch, None)   # closed with Escape
+    tab.delete_btn.click()
+    assert [g["name"] for g in store.load_gestures()] == ["peace"]
+    press(monkeypatch, t("btn_delete"))
+    tab.delete_btn.click()
+    assert store.load_gestures() == [] and tab.recorded_list.count() == 0 and not tab.delete_btn.isEnabled()
+    assert store.load_jurus()[0]["gesture"] == "rec:peace" and "⚠" in jurus.list.item(0).text()
+
+
+def test_the_gesture_tab_is_wired_into_the_window(tmp_path, monkeypatch, qapp):
+    w = window_with(tmp_path, [gesture("peace")], [{**DEFAULT_JURUS[1], "gesture": "rec:peace"}, DEFAULT_JURUS[2]])
+    assert w.tabs.widget(1) is w.gesture_tab and w.tabs.tabText(1) == t("tab_gestures")
+    w.engine.status.emit({**STATUS, "scores": {"peace": 0.25}})
+    assert w.gesture_tab.score_bar.value() == 25
+    ask(monkeypatch, "victory")
+    w.gesture_tab.rename_btn.click()   # the jurus tab must not write its old list back over the renamed jurus
+    store = Store(tmp_path)
+    assert [j["gesture"] for j in store.load_jurus()] == ["rec:victory", DEFAULT_JURUS[2]["gesture"]]
+    assert w.jurus_tab.items[0]["gesture"] == "rec:victory" and "⚠" not in w.jurus_tab.list.item(0).text()
+    assert w.engine._pending is not None   # and the engine was handed the new setup
+    ask(monkeypatch, "clap")
+    w.gesture_tab.record_btn.click()
+    w.engine.recorded.emit({**HAND, "mean": [0.1] * 210})
+    assert [g["name"] for g in store.load_gestures()] == ["victory", "clap"]

@@ -1,15 +1,15 @@
-"""The MeetCam window: live preview, status lights, the main buttons, the Jurus tab (with its editor) and the
-Settings tab."""
+"""The MeetCam window: live preview, status lights, the main buttons, the Jurus tab (with its editor), the Gesture
+tab and the Settings tab."""
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtCore import Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QKeySequence, QPixmap, QShortcut
 from PySide6.QtMultimedia import QAudioOutput, QMediaDevices, QMediaPlayer
-from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
-                               QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-                               QMainWindow, QMessageBox, QPushButton, QSizePolicy, QSlider, QTabWidget, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
+                               QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
+                               QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QProgressBar, QPushButton,
+                               QSizePolicy, QSlider, QTabWidget, QVBoxLayout, QWidget)
 
 import audio
 from engine import Engine
@@ -479,6 +479,11 @@ class JurusTab(QWidget):
         templates = valid_templates(self.store.load_gestures())
         return (*build(self.items, self.store, templates, self.sr), templates)
 
+    def refresh(self):
+        """The gestures changed, and a rename may have rewritten jurus.yaml: read the list again, then apply it."""
+        self.items = [_dict(c) for c in self.store.load_jurus()]
+        self.apply()
+
     def apply(self, show: bool = True):
         """Save the list, rebuild the jurus from it and hand them to the engine; then redraw the list."""
         self.store.save_jurus(self.items)
@@ -571,6 +576,223 @@ class JurusTab(QWidget):
             self.engine.try_jurus(str(self.items[row].get("name", "")))
 
 
+SENSITIVITY_STEPS = (8, 30)   # the sensitivity slider, in tenths: 0.8 to 3.0
+SAVE_DELAY_MS = 400           # a slider drag saves once it pauses: saving rebuilds the jurus, which re-decodes media
+
+
+class GestureTab(QWidget):
+    """The built-in gestures and the ones the user recorded: record, re-record, rename, delete, tune the
+    sensitivity and watch the live match score. Every change is saved at once, and `gestures_changed` tells the
+    Jurus tab to rebuild. MainWindow feeds it the engine's `status` (on_status) and `recorded` (on_recorded)."""
+    gestures_changed = Signal()
+
+    def __init__(self, store, engine):
+        super().__init__()
+        self.store, self.engine = store, engine
+        self.items = store.load_gestures()   # all of it: a hand-edited entry we can't use survives a save
+        self.pending_name = None             # the name of the recording being made; None when idle
+        self._timer = QTimer(self, singleShot=True, interval=SAVE_DELAY_MS)
+        self._timer.timeout.connect(self._save)
+
+        self.builtin_list = QListWidget()
+        self.builtin_list.setSelectionMode(QAbstractItemView.NoSelection)   # shown, not editable
+        self.builtin_list.setFocusPolicy(Qt.NoFocus)
+        self.builtin_list.addItems([t("g_" + g) for g in BUILTIN_GESTURES])
+        self.builtin_list.setFixedHeight(self.builtin_list.sizeHintForRow(0) * self.builtin_list.count()
+                                         + 2 * self.builtin_list.frameWidth())
+        self.recorded_list = QListWidget()
+        self.recorded_list.currentRowChanged.connect(self._on_selection)
+        self.record_btn, self.rerecord_btn, self.rename_btn, self.delete_btn = (
+            QPushButton(t(k)) for k in ("btn_record", "btn_rerecord", "btn_rename", "btn_delete"))
+        row = QHBoxLayout()
+        for button, action in ((self.record_btn, self.record), (self.rerecord_btn, self.rerecord),
+                               (self.rename_btn, self.rename), (self.delete_btn, self.delete)):
+            button.clicked.connect(lambda _=False, action=action: action())
+            row.addWidget(button)
+        self.sens, self.sens_value = QSlider(Qt.Horizontal), QLabel()
+        self.sens.setRange(*SENSITIVITY_STEPS)
+        self.sens.valueChanged.connect(self._sens_changed)
+        sens_row = QHBoxLayout()
+        sens_row.addWidget(self.sens, 1)
+        sens_row.addWidget(self.sens_value)
+        self.score_bar = QProgressBar()
+        self.score_bar.setRange(0, 100)
+        hint = QLabel(t("score_hint"), wordWrap=True)
+        hint.setStyleSheet("color: gray")
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel(t("gest_builtin")))
+        layout.addWidget(self.builtin_list)
+        layout.addWidget(QLabel(t("gest_recorded")))
+        layout.addWidget(self.recorded_list, 1)
+        layout.addLayout(row)
+        layout.addWidget(QLabel(t("gest_sensitivity"), wordWrap=True))
+        layout.addLayout(sens_row)
+        layout.addWidget(self.score_bar)
+        layout.addWidget(hint)
+        self._show()
+
+    # --- the list -----------------------------------------------------------------------
+    def _find(self, name) -> dict | None:
+        """The usable recording called `name`: the very dict in `items`, so changing it changes what is saved."""
+        return next((g for g in valid_templates(self.items) if g["name"] == name), None)
+
+    def _selected(self) -> str | None:
+        item = self.recorded_list.currentItem()
+        return item.data(Qt.UserRole) if item else None
+
+    def _save(self):
+        """Write the recordings (any pending slider change with them) and tell the Jurus tab."""
+        self._timer.stop()
+        self.store.save_gestures(self.items)
+        self.gestures_changed.emit()
+
+    def _show(self, select: str | None = None):
+        """Redraw the recordings with `select` (else what was selected, else the first) selected."""
+        select = select or self._selected()
+        templates = valid_templates(self.items)
+        self.recorded_list.blockSignals(True)   # filling the list is not the user picking a row
+        self.recorded_list.clear()
+        for g in templates:
+            item = QListWidgetItem("🖐 " + g["name"] + (t("gest_hands2") if g["hands"] == 2 else ""))
+            item.setData(Qt.UserRole, g["name"])
+            self.recorded_list.addItem(item)
+        self.recorded_list.blockSignals(False)
+        names = [g["name"] for g in templates]
+        self.recorded_list.setCurrentRow(names.index(select) if select in names else 0 if names else -1)
+        self._on_selection()
+
+    def _on_selection(self, *_):
+        """Show the selected recording's sensitivity (without saving it) and clear the score."""
+        g = self._find(self._selected())
+        if g:
+            self.sens.blockSignals(True)   # showing a value is not the user moving the slider
+            self.sens.setValue(round(g["sensitivity"] * 10))
+            self.sens.blockSignals(False)
+        self.sens.setEnabled(g is not None)
+        self._show_sensitivity()
+        self._score(None)
+        self._sync_buttons()
+
+    def _sync_buttons(self):
+        """Re-record, Rename and Delete need a selected recording; nothing starts while the engine is recording."""
+        idle, picked = self.pending_name is None, self._selected() is not None
+        self.record_btn.setEnabled(idle)
+        for button in (self.rerecord_btn, self.rename_btn, self.delete_btn):
+            button.setEnabled(idle and picked)
+
+    # --- sensitivity and the live score ----------------------------------------------------
+    def _show_sensitivity(self):
+        self.sens_value.setText(f"{self.sens.value() / 10:.1f}×" if self.sens.isEnabled() else "")
+
+    def _sens_changed(self, value: int):
+        if g := self._find(self._selected()):
+            g["sensitivity"] = value / 10
+            self._timer.start()   # saved when the slider rests
+        self._show_sensitivity()
+
+    def on_status(self, st: dict):
+        self._score((st.get("scores") or {}).get(self._selected()))
+
+    def _score(self, score: float | None):
+        """The bar for the selected recording's match score: full at 1, empty at 0 or below, "—" when unknown."""
+        if score is None:
+            self.score_bar.setValue(0)
+            self.score_bar.setFormat("—")
+        else:
+            self.score_bar.setValue(round(max(0.0, min(1.0, score)) * 100))
+            self.score_bar.setFormat(t("score_match") if score > 0 else "%p%")
+
+    # --- the buttons --------------------------------------------------------------------
+    def _ask_name(self, title: str, current: str = "") -> str | None:
+        """What the user typed in a small dialog, or None if cancelled."""
+        box = QInputDialog(self)
+        box.setWindowTitle(title)
+        box.setLabelText(t("gest_name_label"))
+        box.setTextValue(current)
+        box.setOkButtonText(t("btn_ok"))   # not Qt's English buttons whatever the language
+        box.setCancelButtonText(t("btn_cancel"))
+        name = box.textValue() if box.exec() == QDialog.Accepted else None
+        box.deleteLater()
+        return name
+
+    def _new_name(self, title: str, current: str = "") -> str | None:
+        """Ask for a name, unless it can't be used: then say why and give None. `current` may be kept."""
+        name = self._ask_name(title, current)
+        if name is None:
+            return None
+        name = name.strip()
+        problem = (t("err_gest_empty") if not name else t("err_gest_colon") if ":" in name   # "rec:" + name
+                   else t("err_gest_taken", name=name) if name != current and self._find(name) else None)
+        if problem:
+            QMessageBox.warning(self, "MeetCam", problem)
+            return None
+        return name
+
+    def _start(self, name: str):
+        self.pending_name = name
+        self._sync_buttons()
+        self.engine.record()   # the answer comes to on_recorded
+
+    def record(self):
+        if (name := self._new_name(t("gest_name_title"))) is not None:
+            self._start(name)
+
+    def rerecord(self):
+        if (name := self._selected()) is not None:
+            self._start(name)
+
+    def on_recorded(self, result):
+        """The engine's answer: the template of the hand(s) it saw, or "no_hand" / "unsteady"."""
+        name, self.pending_name = self.pending_name, None
+        if name is None:   # not asked for here
+            return
+        if isinstance(result, dict):
+            old = self._find(name)
+            template = {**result, "name": name}
+            if old:   # a re-recording keeps the tuning
+                template["sensitivity"] = old["sensitivity"]
+            self.items = [template if g is old else g for g in self.items] if old else [*self.items, template]
+            self._save()
+            self._show(select=name)
+        else:
+            QMessageBox.warning(self, t("record_failed_title"), t("record_" + str(result)))
+        self._sync_buttons()
+
+    def rename(self):
+        old = self._selected()
+        if old is None:
+            return
+        new = self._new_name(t("gest_rename_title"), old)
+        if new is None or new == old:
+            return
+        self._find(old)["name"] = new
+        jurus = self.store.load_jurus()
+        for j in jurus:   # the jurus that use it follow it
+            if isinstance(j, dict) and j.get("gesture") == "rec:" + old:
+                j["gesture"] = "rec:" + new
+        self.store.save_jurus(jurus)
+        self._save()
+        self._show(select=new)
+
+    def delete(self):
+        name = self._selected()
+        if name is None:
+            return
+        # not QMessageBox.question: its Yes/No buttons would be in English whatever the language
+        box = QMessageBox(QMessageBox.Question, "MeetCam", t("confirm_delete_gesture", name=name), parent=self)
+        delete = box.addButton(t("btn_delete"), QMessageBox.AcceptRole)
+        box.setDefaultButton(box.addButton(t("btn_cancel"), QMessageBox.RejectRole))   # Enter does not delete
+        box.exec()
+        confirmed = box.clickedButton() is delete
+        box.deleteLater()
+        if confirmed:
+            gone = self._find(name)
+            self.items = [g for g in self.items if g is not gone]
+            self._save()   # the jurus that use it stay, marked ⚠ by the Jurus tab's rebuild
+            self._show()
+
+
 class MainWindow(QMainWindow):
     def __init__(self, store, cfg: dict, engine: Engine | None = None):
         """With no `engine`, makes one and starts it; one passed in is used as it is (tests give an unstarted one)."""
@@ -616,9 +838,14 @@ class MainWindow(QMainWindow):
 
         self.tabs = QTabWidget()
         self.jurus_tab = JurusTab(store, self.engine)   # the first tab, so the one shown
+        self.gesture_tab = GestureTab(store, self.engine)
         self.settings_tab = SettingsTab(store, self.engine, cfg)
         self.tabs.addTab(self.jurus_tab, t("tab_jurus"))
+        self.tabs.addTab(self.gesture_tab, t("tab_gestures"))
         self.tabs.addTab(self.settings_tab, t("tab_settings"))
+        self.gesture_tab.gestures_changed.connect(self.jurus_tab.refresh)
+        self.engine.status.connect(self.gesture_tab.on_status)
+        self.engine.recorded.connect(self.gesture_tab.on_recorded)
 
         root = QWidget()
         left = QVBoxLayout()
