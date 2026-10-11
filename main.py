@@ -7,6 +7,7 @@ from pathlib import Path
 import yaml
 from PySide6.QtWidgets import QApplication
 
+import i18n
 from store import Store, default_root
 
 
@@ -17,6 +18,7 @@ def main() -> int:
     app.setApplicationName("MeetCam")  # no organization name: it would add a folder level to the data path
     store = Store(default_root())
     cfg = yaml.safe_load(Path(__file__).with_name("config.yaml").read_text(encoding="utf-8"))
+    i18n.set_language(store.load_settings()["language"])  # the language is picked at start, not live
     window = MainWindow(store, cfg)
     window.show()
     return app.exec()
