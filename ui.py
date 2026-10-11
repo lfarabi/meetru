@@ -30,6 +30,14 @@ def _devices(host_api: str, kind: str) -> list[str]:
         return []
 
 
+def _cameras() -> list[str]:
+    try:
+        return [d.description() for d in QMediaDevices.videoInputs()]
+    except Exception as e:  # the camera service is missing: the fallback names, not a crash
+        log.warning("Could not list the cameras: %s", e)
+        return []
+
+
 def _fill(combo: QComboBox, items: list[tuple[str, object]], saved):
     """Fill `combo` with (text, value) items and show `saved`. Saved names may be part of a device name (that is
     how the engine matches them), and a saved device that is unplugged stays listed, so it is not lost silently."""
@@ -52,7 +60,7 @@ class SettingsTab(QWidget):
         super().__init__()
         self.store, self.engine = store, engine
         s, host = store.load_settings(), cfg["audio"]["host_api"]
-        cameras = [d.description() for d in QMediaDevices.videoInputs()] or [t("camera_n", n=i) for i in range(4)]
+        cameras = _cameras() or [t("camera_n", n=i) for i in range(4)]
         inputs, outputs = _devices(host, "input"), _devices(host, "output")
         default = [(t("device_default"), None)]
         # The meeting output is VB-CABLE's playback side unless the user chose another.
@@ -70,7 +78,7 @@ class SettingsTab(QWidget):
         for key, (combo, items) in combos.items():
             # a long device name must not widen the window
             combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
-            combo.setMinimumContentsLength(30)
+            combo.setMinimumContentsLength(24)
             _fill(combo, items, shown[key])  # nothing is connected yet, so filling saves nothing
             combo.currentIndexChanged.connect(lambda _, k=key, c=combo: self._changed(k, c.currentData()))
         for key, box in (("virtual_camera", self.vcam), ("mirror_preview", self.mirror)):
@@ -78,6 +86,7 @@ class SettingsTab(QWidget):
             box.toggled.connect(lambda on, k=key: self._changed(k, on))
 
         form = QFormLayout(self)
+        form.setRowWrapPolicy(QFormLayout.WrapAllRows)  # labels above the pickers: the column stays narrow
         for label, widget in (("set_camera", self.camera), ("set_mic", self.mic), ("set_speaker", self.speaker),
                               ("set_meeting_output", self.meeting)):
             form.addRow(t(label), widget)
@@ -125,7 +134,7 @@ class MainWindow(QMainWindow):
 
         self.effects = self._button("btn_effects", "Space", lambda on: setattr(self.engine, "effects_on", on), True)
         self.mute = self._button("btn_mute", "M", lambda on: setattr(self.engine, "muted", on))
-        self.skeleton = self._button("btn_skeleton", "D", self._set_skeleton, settings["skeleton"])
+        self.skeleton = self._button("btn_skeleton", "D", self._set_skeleton, bool(settings["skeleton"]))
         self.room = QPushButton(t("btn_room"))
         self.room.clicked.connect(self.engine.capture_room)
         QShortcut(QKeySequence("B"), self, activated=self.room.click)
@@ -140,14 +149,16 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.settings_tab, t("tab_settings"))
 
         root = QWidget()
-        column = QVBoxLayout(root)
-        column.addWidget(self.preview, 1)
-        column.addWidget(self.message)
-        column.addLayout(lights)
-        column.addLayout(buttons)
-        column.addWidget(self.tabs)
+        left = QVBoxLayout()
+        left.addWidget(self.preview, 1)
+        left.addWidget(self.message)
+        left.addLayout(lights)
+        left.addLayout(buttons)
+        columns = QHBoxLayout(root)
+        columns.addLayout(left, 1)  # the preview takes the width the tabs don't need
+        columns.addWidget(self.tabs)
         self.setCentralWidget(root)
-        self.resize(900, 860)
+        self.resize(1200, 680)  # fits a 1366x768 laptop screen
 
         self.on_status({})  # the lights start out OFF
         if start:

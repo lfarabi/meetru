@@ -1,12 +1,15 @@
+import string
+
 import pytest
 from conftest import M_CFG, make_engine
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
 
 import i18n
+import ui
 from i18n import STRINGS, t
 from store import Store
-from ui import MainWindow
+from ui import MainWindow, SettingsTab
 
 STATUS = {"fps": 25.0, "vcam": True, "meeting": True, "gesture": "NO_HAND", "message": "", "message_args": {},
           "scores": {}, "invisible": False, "effects_on": True, "muted": False}
@@ -25,6 +28,44 @@ def queued(engine):
     while not engine._cmds.empty():
         out.append(engine._cmds.get_nowait())
     return out
+
+
+def fake_audio(monkeypatch, devices):
+    """The sound card's devices as {"input": [...], "output": [...]}, or an exception for a broken driver."""
+    def list_devices(host_api, kind):
+        if isinstance(devices, Exception):
+            raise devices
+        return devices[kind]
+    monkeypatch.setattr(ui.audio, "list_devices", list_devices)
+
+
+def fake_cameras(monkeypatch, names):
+    """The cameras Qt reports, or an exception for a failing query."""
+    class Camera:
+        def __init__(self, name):
+            self.name = name
+
+        def description(self):
+            return self.name
+
+    class Media:
+        @staticmethod
+        def videoInputs():
+            if isinstance(names, Exception):
+                raise names
+            return [Camera(n) for n in names]
+    monkeypatch.setattr(ui, "QMediaDevices", Media)
+
+
+def texts(combo):
+    return [combo.itemText(i) for i in range(combo.count())]
+
+
+def settings_tab(tmp_path, **saved):
+    store = Store(tmp_path)
+    if saved:
+        store.save_settings({**store.load_settings(), **saved})
+    return SettingsTab(store, make_engine(store), M_CFG)
 
 
 @pytest.fixture
@@ -135,6 +176,61 @@ def test_the_keyboard_shortcuts(window):
     assert queued(e) == [("capture_room", ())]
     QTest.keyClick(window, Qt.Key_Q)
     assert not window.isVisible()
+
+
+# --- the pickers, on made-up devices ----------------------------------------------------------
+CABLE = "CABLE Input (VB-Audio Virtual Cable)"
+
+
+def test_a_saved_part_of_a_device_name_selects_the_whole_device(tmp_path, monkeypatch, qapp):
+    fake_audio(monkeypatch, {"input": ["Mic"], "output": ["Speakers", CABLE]})
+    tab = settings_tab(tmp_path)  # the default meeting_output is "CABLE Input"
+    assert (tab.meeting.currentText(), tab.meeting.currentData()) == (CABLE, CABLE)
+    assert not (tmp_path / "settings.yaml").exists()  # showing it is not saving it
+
+
+def test_no_saved_meeting_output_selects_the_first_cable_input(tmp_path, monkeypatch, qapp):
+    fake_audio(monkeypatch, {"input": [], "output": ["Speakers", "Headset", CABLE, "CABLE Input 2"]})
+    assert settings_tab(tmp_path, meeting_output=None).meeting.currentData() == CABLE
+
+
+def test_a_failing_device_query_gives_empty_pickers(tmp_path, monkeypatch, qapp):
+    fake_audio(monkeypatch, OSError("no PortAudio"))
+    tab = settings_tab(tmp_path)
+    assert texts(tab.mic) == texts(tab.speaker) == [t("device_default")]
+    assert texts(tab.meeting) == ["CABLE Input"]  # only the saved one, still shown
+
+
+@pytest.mark.parametrize("cameras", [[], RuntimeError("no camera service")])
+def test_no_cameras_listed_gives_camera_0_to_3(tmp_path, monkeypatch, qapp, cameras):
+    fake_cameras(monkeypatch, cameras)
+    assert texts(settings_tab(tmp_path).camera) == [f"Camera {i}" for i in range(4)]
+
+
+def test_cameras_are_listed_by_name_and_index(tmp_path, monkeypatch, qapp):
+    fake_cameras(monkeypatch, ["FHD Camera", "Other"])
+    tab = settings_tab(tmp_path, camera_index=1)
+    assert texts(tab.camera) == ["FHD Camera", "Other"] and tab.camera.currentData() == 1
+
+
+def test_every_string_has_the_same_fields_in_both_languages():
+    def fields(text):
+        return {f for _, f, _, _ in string.Formatter().parse(text) if f is not None}
+    assert {k: fields(v) for k, v in STRINGS["id"].items()} == {k: fields(v) for k, v in STRINGS["en"].items()}
+
+
+def test_a_null_skeleton_setting_does_not_crash_the_start(tmp_path, qapp):
+    store = Store(tmp_path)
+    store.save_settings({**store.load_settings(), "skeleton": None})
+    assert not MainWindow(store, M_CFG, make_engine(store)).skeleton.isChecked()
+
+
+def test_the_tabs_sit_to_the_right_of_the_preview_on_a_laptop_screen(window, qapp):
+    window.show()
+    qapp.processEvents()
+    left, right = (w.mapTo(window, QPoint(0, 0)).x() for w in (window.preview, window.tabs))
+    assert right >= left + window.preview.width()
+    assert window.width() <= 1280 and window.height() <= 700  # fits 1366x768 with the taskbar
 
 
 def test_a_broken_file_is_reported_once_the_window_is_up(tmp_path, qapp):
