@@ -55,12 +55,6 @@ def open_virtual_camera(cfg: dict, width: int, height: int, fps: int) -> pyvirtu
     return cam
 
 
-def facing(n) -> str:
-    """Dominant palm direction (left/right as seen in the mirrored preview)."""
-    axis = int(np.argmax(np.abs(n)))
-    return [("RIGHT", "LEFT"), ("UP", "DOWN"), ("CAMERA", "AWAY")][axis][int(n[axis] > 0)]
-
-
 def draw_skeleton(img, lm):
     pts = lm[:, :2].astype(int)
     for a, b in CONNECTIONS:
@@ -105,6 +99,7 @@ class Engine(QThread):
         self._muted = False
         self._cmds = queue.SimpleQueue()
         self._running = True
+        self._fps, self._last, self._drops, self._oops_at = 0.0, time.perf_counter(), 0, float("-inf")
         self._lock, self._pending, self._setup = threading.Lock(), None, None
         self._shape, self._vanish_key = None, None
         self._rec = None   # a recording in progress: {"start": time or None, "frames": [hands, ...]}
@@ -166,39 +161,61 @@ class Engine(QThread):
 
     # --- the thread -----------------------------------------------------------------
     def run(self):
-        self._start()
-        last, fps, drops = time.perf_counter(), 0.0, 0
-        while self._running:
-            self._drain()
-            if self.cap is None or self.tracker is None:  # nothing to run on: wait for new settings, or for stop
-                time.sleep(0.2)
-                continue
-            ok, frame = self.cap.read()
-            if not ok:
-                drops += 1
-                if drops >= LOST_AFTER:  # unplugged or taken by another app: stop spinning, say so
-                    drops = 0
-                    self._release_camera()
-                    self._emit_status(message="camera_failed")
-                time.sleep(0.01)
-                continue
-            drops = 0
-            now = time.perf_counter()
-            fps = 0.9 * fps + 0.1 / max(now - last, 1e-6)
-            last = now
-            outgoing, preview = self.step(frame, now)
-            if self.vcam is not None and outgoing.shape[:2] == (self.vcam.height, self.vcam.width):
-                self.vcam.send(outgoing)
-            h, w = preview.shape[:2]
-            self.frame_ready.emit(QImage(preview.data, w, h, preview.strides[0], QImage.Format.Format_BGR888).copy())
-            self.status.emit(self._status(fps))
-        if self.vcam:
-            self.vcam.close()
-        if self.audio:
-            self.audio.close()
-        if self.tracker:
-            self.tracker.close()
-        self._release_camera()
+        try:
+            try:
+                self._start()
+            except Exception:
+                self._oops("Starting")  # carry on: the loop idles on whatever did open, and still obeys stop()
+            self._last = time.perf_counter()
+            while self._running:
+                try:
+                    self._iterate()
+                except Exception:  # one bad frame or file must not end the loop
+                    self._oops("The frame loop")
+                    time.sleep(0.01)  # a failure that repeats every pass must not spin
+        finally:
+            self._close()
+
+    def _oops(self, what: str):
+        """Log a failure the loop carries on after; at most every 5 s, as it may repeat every frame."""
+        now = time.monotonic()
+        if now - self._oops_at > 5:
+            self._oops_at = now
+            log.exception("%s failed; carrying on (repeats are not logged for 5 s)", what)
+
+    def _iterate(self):
+        self._drain()
+        if self.cap is None or self.tracker is None:  # nothing to run on: wait for new settings, or for stop
+            time.sleep(0.2)
+            return
+        ok, frame = self.cap.read()
+        if not ok:
+            self._drops += 1
+            if self._drops >= LOST_AFTER:  # unplugged or taken by another app: stop spinning, say so
+                self._drops = 0
+                self._release_camera()
+                self._emit_status(message="camera_failed")
+            time.sleep(0.01)
+            return
+        self._drops = 0
+        now = time.perf_counter()
+        self._fps = 0.9 * self._fps + 0.1 / max(now - self._last, 1e-6)
+        self._last = now
+        outgoing, preview = self.step(frame, now)
+        if self.vcam is not None and outgoing.shape[:2] == (self.vcam.height, self.vcam.width):
+            self.vcam.send(outgoing)
+        h, w = preview.shape[:2]
+        self.frame_ready.emit(QImage(preview.data, w, h, preview.strides[0], QImage.Format.Format_BGR888).copy())
+        self.status.emit(self._status(self._fps))
+
+    def _close(self):
+        for close in (self.vcam and self.vcam.close, self.audio and self.audio.close,
+                      self.tracker and self.tracker.close, self._release_camera):
+            try:
+                if close:
+                    close()
+            except Exception:  # the others must still be closed, above all the camera
+                log.exception("Closing a device failed")
 
     def _start(self):
         if self.audio is None:
@@ -214,7 +231,10 @@ class Engine(QThread):
         self._open_vcam()
 
     def _drain(self):
-        self._apply_pending()  # so a command queued after a reload sees the new jurus
+        try:
+            self._apply_pending()  # so a command queued after a reload sees the new jurus
+        except Exception:
+            self._oops("Switching to the new jurus")  # stop() must still get through
         while True:
             try:
                 name, args = self._cmds.get_nowait()
@@ -367,12 +387,17 @@ class Engine(QThread):
     def _open_camera(self, cap=None) -> bool:
         """Open the camera chosen in the settings (or take `cap`) and read one frame to learn its size.
         If it gives none, say so and return False."""
-        if cap is None:
-            self._release_camera()
-            cap = open_camera({**self.cfg["camera"], "device_id": self.settings["camera_index"]})
-        ok, frame = cap.read()
+        try:
+            if cap is None:
+                self._release_camera()
+                cap = open_camera({**self.cfg["camera"], "device_id": self.settings["camera_index"]})
+            ok, frame = cap.read()
+        except Exception as e:  # e.g. a camera_index in settings.yaml that is not a number
+            log.warning("Camera could not be opened: %s", e)
+            ok = False
         if not ok:
-            cap.release()
+            if cap is not None:
+                cap.release()
             self.cap = None
             self._emit_status(message="camera_failed")
             return False
@@ -380,16 +405,23 @@ class Engine(QThread):
         return True
 
     def _release_camera(self):
-        if self.cap:
-            self.cap.release()
-        self.cap = None
+        cap, self.cap = self.cap, None
+        if self._rec:  # a recording can't finish without frames
+            self._rec = None
+            self.recorded.emit("no_hand")
+        if cap:
+            cap.release()
 
     def _open_audio(self):
         if self.audio:
             self.audio.close()
         s = self.settings
-        self.audio = AudioEngine({**self.cfg["audio"], "output_device": s["speaker"]},
-                                 {**self.cfg["meeting_audio"], "mic_device": s["mic"], "output_device": s["meeting_output"]})
+        try:
+            self.audio = AudioEngine({**self.cfg["audio"], "output_device": s["speaker"]},
+                                     {**self.cfg["meeting_audio"], "mic_device": s["mic"], "output_device": s["meeting_output"]})
+        except Exception:  # e.g. no PortAudio: run silent rather than not at all
+            log.exception("Audio unavailable, running silent")
+            self.audio = AudioEngine({**self.cfg["audio"], "enabled": False})
         self.audio.muted = self._muted
         self._attach_audio()
 
@@ -408,7 +440,10 @@ class Engine(QThread):
             self.vanish.start_capture(time.perf_counter())
 
     def _do_record(self):
-        self._rec = {"start": None, "frames": []}
+        if self.cap is None or self.tracker is None:  # no frames are coming
+            self.recorded.emit("no_hand")
+        else:
+            self._rec = {"start": None, "frames": []}
 
     def _do_try_jurus(self, name: str):
         now = time.perf_counter()

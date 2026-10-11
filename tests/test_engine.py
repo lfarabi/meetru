@@ -137,6 +137,75 @@ def test_missing_camera_reports_instead_of_crashing(tmp_path):
     assert e._open_camera() is False and msgs[-1]["message"] == "camera_failed"
 
 
+def test_a_nonsense_camera_index_reports_instead_of_crashing(tmp_path):
+    e = make_engine(Store(tmp_path), {**DEFAULT_SETTINGS, "camera_index": None})
+    msgs = []
+    e.status.connect(msgs.append)
+    assert e._open_camera() is False and msgs[-1]["message"] == "camera_failed"
+
+
+def wait_for_frames(e, qapp, frames, n):
+    """Process queued signals until `n` frames have arrived, the thread has died, or 10 s have passed."""
+    deadline = time.time() + 10
+    while len(frames) < n and e.isRunning() and time.time() < deadline:
+        qapp.processEvents()
+        time.sleep(0.01)
+
+
+class FlakyTracker(FakeTracker):
+    def __init__(self):
+        super().__init__()
+        self.calls = 0
+
+    def detect(self, frame, t_ms):
+        self.calls += 1
+        if self.calls == 3:
+            raise RuntimeError("one bad frame")
+        return self.hands
+
+
+def test_one_bad_frame_does_not_stop_the_loop(tmp_path, qapp):
+    e = make_engine(Store(tmp_path), {**DEFAULT_SETTINGS, "virtual_camera": False}, tracker=FlakyTracker())
+    e.cap = FakeCap()
+    frames = []
+    e.frame_ready.connect(frames.append)
+    e.start()
+    wait_for_frames(e, qapp, frames, 8)
+    alive = e.isRunning()
+    e.stop()
+    assert e.wait(10000)
+    assert alive and len(frames) >= 8 and e.tracker.calls > 3
+
+
+def test_a_stuck_swap_cannot_trap_the_thread_or_leave_devices_open(tmp_path, qapp):
+    cap = FakeCap()
+    e = make_engine(Store(tmp_path), {**DEFAULT_SETTINGS, "virtual_camera": False})
+    e.cap = cap
+
+    def stuck():
+        raise RuntimeError("cannot build this vanish")
+    e._apply_pending = stuck
+    e.start()
+    time.sleep(0.3)
+    alive = e.isRunning()
+    e.stop()
+    assert e.wait(10000)
+    assert alive and cap.released and e.tracker.closed
+
+
+def test_audio_that_cannot_start_leaves_the_engine_running_silent(tmp_path, monkeypatch):
+    real = engine.AudioEngine
+
+    def no_portaudio(cfg, meeting_cfg=None):
+        if meeting_cfg is not None:
+            raise OSError("PortAudio library not found")
+        return real(cfg)
+    monkeypatch.setattr(engine, "AudioEngine", no_portaudio)
+    e = make_engine(Store(tmp_path))
+    e._open_audio()
+    assert isinstance(e.audio, real) and e._setup.rules.audio is e.audio
+
+
 class FakeCap:
     def __init__(self):
         self.released = False
@@ -204,6 +273,7 @@ def test_run_streams_frames_until_stopped(tmp_path, qapp):
 # --- recording a gesture -------------------------------------------------------------
 def record(e, frame_size=(1280, 720)):
     """Run a recording to its end on simulated time; returns the status messages seen along the way."""
+    e.cap = FakeCap()
     e._do_record()
     t0, messages = time.perf_counter(), []
     for i in range(round((engine.RECORD_COUNTDOWN + engine.RECORD_SECONDS + 1) / DT)):
@@ -230,8 +300,27 @@ def test_recording_with_no_hand_reports_no_hand(tmp_path, qapp):
     assert got == ["no_hand"]
 
 
+def test_recording_with_no_camera_answers_at_once(tmp_path, qapp):
+    e = make_engine(Store(tmp_path))
+    got = []
+    e.recorded.connect(got.append)
+    e._do_record()
+    assert got == ["no_hand"] and e._rec is None
+
+
+def test_losing_the_camera_ends_a_recording(tmp_path, qapp):
+    e = make_engine(Store(tmp_path))
+    e.cap = FakeCap()
+    got = []
+    e.recorded.connect(got.append)
+    e._do_record()
+    e._release_camera()
+    assert got == ["no_hand"] and e._rec is None
+
+
 def test_record_countdown_reports_the_seconds_left(tmp_path, qapp):
     e = make_engine(Store(tmp_path))
+    e.cap = FakeCap()
     e._do_record()
     t0 = time.perf_counter()
     e.step(BLACK(), t0)

@@ -669,6 +669,12 @@ def test_without_a_background_the_seal_explains_instead_of_vanishing(tmp_path):
     assert v.mix == 0 and v.message(t) == "no_room_photo"
 
 
+def test_an_unreadable_room_photo_counts_as_no_photo(tmp_path):
+    (tmp_path / "bg.png").write_bytes(b"not a png")   # e.g. cut short by a crash mid-save
+    v = Vanish(vanish_cfg(tmp_path), (720, 1280, 3))
+    assert v.plate is None
+
+
 def test_capture_then_seal_vanishes_and_seal_again_returns(tmp_path):
     v = Vanish(vanish_cfg(tmp_path), (720, 1280, 3))
     room = np.full((720, 1280, 3), 90, np.uint8)

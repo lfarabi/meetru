@@ -232,7 +232,11 @@ class Vanish:
         self.plate = None
         plate_path = Path(cfg["background"])
         if plate_path.exists():
-            self.plate = cv2.resize(cv2.imread(str(plate_path)), (frame_shape[1], frame_shape[0]))
+            photo = cv2.imread(str(plate_path))
+            if photo is None:  # e.g. cut short by a crash while it was being saved
+                log.warning("Room photo %s is unreadable; take a new one", plate_path)
+            else:
+                self.plate = cv2.resize(photo, (frame_shape[1], frame_shape[0]))
         self.clip = _load(cfg["smoke"], "Smoke") if cfg["smoke"] else None  # smoke is optional: plain crossfade
         self._start, self._at, self._from, self._to = None, None, 0.0, 0.0
         self._capture_at, self._captured = None, []
