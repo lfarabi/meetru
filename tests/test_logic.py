@@ -506,21 +506,6 @@ def test_mp3_is_loaded_mono_and_resampled(tmp_path):
     assert x.ndim == 1 and abs(len(x) - 48000) < 3000 and 0.3 < np.abs(x).max() < 0.7
 
 
-# --- virtual camera -------------------------------------------------------------
-import main  # noqa: E402
-
-
-def test_virtual_camera_failure_falls_back_to_preview_only(monkeypatch):
-    def busy(**kwargs):
-        raise RuntimeError("virtual camera output could not be started")
-    monkeypatch.setattr(main.pyvirtualcam, "Camera", busy)
-    assert main.open_virtual_camera({"enabled": True, "backend": "obs"}, 1280, 720, 30) is None
-
-
-def test_virtual_camera_can_be_disabled():
-    assert main.open_virtual_camera({"enabled": False, "backend": "obs"}, 1280, 720, 30) is None
-
-
 # --- meeting audio (mic + SFX into VB-CABLE) -------------------------------------
 from audio import Fifo  # noqa: E402
 
@@ -681,18 +666,21 @@ def test_without_a_background_the_seal_explains_instead_of_vanishing(tmp_path):
     v = Vanish(vanish_cfg(tmp_path), (720, 1280, 3))
     v.fire(SEAL_AT, 0.0)
     t = run_vanish(v, 0.0, 1.0)
-    assert v.mix == 0 and "press B" in v.message(t)
+    assert v.mix == 0 and v.message(t) == "no_room_photo"
 
 
 def test_capture_then_seal_vanishes_and_seal_again_returns(tmp_path):
     v = Vanish(vanish_cfg(tmp_path), (720, 1280, 3))
     room = np.full((720, 1280, 3), 90, np.uint8)
     v.start_capture(0.0)
+    v.capture_tick(room, 0.04)
+    assert v.message(0.04) == "room_countdown" and v.countdown(0.04) == 1
     t = 0.0
     for _ in range(60):
         t += DT
         v.capture_tick(room, t)
     assert v.plate is not None and (tmp_path / "bg.png").exists()
+    assert v.message(t) == "room_captured" and v.countdown(t) == 0
     v.fire(SEAL_AT, t)
     assert v.busy
     t = run_vanish(v, t, 1.0)

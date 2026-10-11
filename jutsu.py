@@ -5,6 +5,7 @@
 - Detectors: seal_point, wow_pose (both open hands together under the chin), raised_fist.
 """
 import logging
+import math
 from pathlib import Path
 from typing import NamedTuple
 
@@ -241,8 +242,13 @@ class Vanish:
         return self._start is not None
 
     def message(self, t: float) -> str:
-        """Status line for the preview, shown for a few seconds."""
+        """Key of the status line to show, for a few seconds: "room_countdown", "room_captured",
+        "no_room_photo", or "" (the UI turns the key into words)."""
         return self._message if t < self._message_until else ""
+
+    def countdown(self, t: float) -> int:
+        """Whole seconds left before the room photo is taken (0 when none is pending)."""
+        return 0 if self._capture_at is None else max(0, math.ceil(self._capture_at - t))
 
     def _say(self, text: str, t: float, seconds: float = 3.0):
         self._message, self._message_until = text, t + seconds
@@ -255,14 +261,14 @@ class Vanish:
         if self._capture_at is None:
             return
         if t < self._capture_at:
-            self._say(f"Leave the frame: capturing the empty room in {self._capture_at - t:.0f}s", t, 0.2)
+            self._say("room_countdown", t, 0.2)
             return
         self._captured.append(frame.copy())
         if len(self._captured) >= CAPTURE_FRAMES:
             self.plate = np.median(np.stack(self._captured), axis=0).astype(np.uint8)
             cv2.imwrite(self.cfg["background"], self.plate)
             self._capture_at, self._captured = None, []
-            self._say("Empty room captured", t)
+            self._say("room_captured", t)
             log.info("Background plate saved to %s", self.cfg["background"])
 
     def fire(self, at: np.ndarray, t: float) -> None:
@@ -273,7 +279,7 @@ class Vanish:
         self._start, self._at, self._from = t, np.array(at, np.float32), self.mix  # copy: callers reuse buffers
         if self.plate is None:
             self._to = 0.0
-            self._say("No empty-room background yet: press B first", t)
+            self._say("no_room_photo", t)
         else:
             self._to = 1.0 - round(self.mix)
 
