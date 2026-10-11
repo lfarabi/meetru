@@ -376,7 +376,7 @@ class JurusEditor(QDialog):
         self.color_btn.setText(self.color)
 
     def _pick_color(self):
-        color = QColorDialog.getColor(QColor(self.color), self)
+        color = QColorDialog.getColor(QColor(self.color), self, t("ed_color"))
         if color.isValid():   # not cancelled
             self._set_color(color.name())
 
@@ -385,8 +385,10 @@ class JurusEditor(QDialog):
         ref, volume = self.sound_src.currentData(), self.volume.value() / 100
         try:
             if ref.startswith("builtin:"):
+                # on the monitor mixer only: AudioEngine.play would feed the meeting mixer too, and the others
+                # in the meeting would hear the preview
                 if sounds := getattr(self.engine, "audio", None):   # the engine opens it when it starts
-                    sounds.play(ref[len("builtin:"):], volume)
+                    sounds.mixer.play(ref[len("builtin:"):], volume)
             elif path := self.store.resolve(ref):
                 if self._player is None:
                     self._out = QAudioOutput(self)
@@ -457,6 +459,7 @@ class JurusTab(QWidget):
         self.list = QListWidget(wordWrap=True)
         self.list.itemChanged.connect(self._toggled)
         self.list.itemDoubleClicked.connect(lambda _: self.edit())
+        self.list.currentRowChanged.connect(self._sync_buttons)
         self.add_btn, self.edit_btn, self.delete_btn, self.try_btn = (
             QPushButton(t(k)) for k in ("btn_add", "btn_edit", "btn_delete", "btn_try"))
         for button, action in ((self.add_btn, self.add), (self.edit_btn, self.edit), (self.delete_btn, self.delete),
@@ -497,7 +500,7 @@ class JurusTab(QWidget):
 
     def _show(self, built):
         """Redraw the list; `built` (the Jurus from rules.build, in the same order) tells which ones have a problem."""
-        row = self.list.currentRow()
+        row = max(self.list.currentRow(), 0)   # something is selected, unless the list is empty
         self.list.blockSignals(True)   # filling the list is not the user ticking boxes
         self.list.clear()
         for cfg, j in zip(self.items, built):
@@ -508,6 +511,12 @@ class JurusTab(QWidget):
             self.list.addItem(item)
         self.list.blockSignals(False)
         self.list.setCurrentRow(min(row, self.list.count() - 1))
+        self._sync_buttons()
+
+    def _sync_buttons(self):
+        """Edit, Delete and Try need a selected jurus."""
+        for button in (self.edit_btn, self.delete_btn, self.try_btn):
+            button.setEnabled(self.list.currentRow() >= 0)
 
     def _toggled(self, item):
         cfg, on = self.items[self.list.row(item)], item.checkState() == Qt.Checked
@@ -547,8 +556,13 @@ class JurusTab(QWidget):
     def delete(self):
         if (row := self._selected()) is None:
             return
-        name = self.items[row].get("name", "")
-        if QMessageBox.question(self, "MeetCam", t("confirm_delete", name=name)) == QMessageBox.Yes:
+        # not QMessageBox.question: its Yes/No buttons would be in English whatever the language
+        box = QMessageBox(QMessageBox.Question, "MeetCam", t("confirm_delete", name=self.items[row].get("name", "")),
+                          parent=self)
+        delete = box.addButton(t("btn_delete"), QMessageBox.AcceptRole)
+        box.setDefaultButton(box.addButton(t("btn_cancel"), QMessageBox.RejectRole))   # Enter does not delete
+        box.exec()
+        if box.clickedButton() is delete:
             del self.items[row]
             self.apply()
 

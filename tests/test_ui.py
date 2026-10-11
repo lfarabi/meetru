@@ -6,7 +6,7 @@ from conftest import M_CFG, make_engine
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QDialog, QMessageBox
+from PySide6.QtWidgets import QDialog
 
 import i18n
 import ui
@@ -284,6 +284,22 @@ def pick_in(combo, data):
     combo.setCurrentIndex(combo.findData(data))
 
 
+def press(monkeypatch, text):
+    """Make a message box 'press' the button with this text (None: it is closed, as by Escape) instead of waiting.
+    Returns what each box showed."""
+    shown = []
+
+    def fake_exec(self):
+        shown.append({"text": self.text(), "buttons": {b.text() for b in self.buttons()},
+                      "default": self.defaultButton().text()})
+        for b in self.buttons():
+            if b.text() == text:
+                b.click()
+        return 0
+    monkeypatch.setattr(ui.QMessageBox, "exec", fake_exec)
+    return shown
+
+
 def test_editor_round_trips_a_jurus(tmp_path, qapp):
     j = DEFAULT_JURUS[-1]                    # WOW text jurus
     assert JurusEditor(Store(tmp_path), j, set()).value() == j
@@ -342,16 +358,42 @@ def test_a_non_dict_entry_in_jurus_yaml_does_not_break_the_tab(tmp_path, qapp):
     assert tab.list.count() == 2 and "⚠" in tab.list.item(0).text() and "⚠" not in tab.list.item(1).text()
 
 
-def test_delete_asks_first(tmp_path, monkeypatch, qapp):
+def test_delete_asks_first_in_the_current_language(tmp_path, monkeypatch, qapp):
+    i18n.set_language("id")
     tab = jurus_tab(tmp_path)
     tab.list.setCurrentRow(1)
-    monkeypatch.setattr(ui.QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.No))
+    shown = press(monkeypatch, t("btn_cancel"))
     tab.delete_btn.click()
     assert tab.list.count() == len(DEFAULT_JURUS) and tab.engine._pending is None
-    monkeypatch.setattr(ui.QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))
+    # the box's own buttons, in Indonesian (not Qt's English Yes/No), and Enter does not delete
+    assert shown == [{"text": t("confirm_delete", name="Beep 1"), "buttons": {"Hapus", "Batal"}, "default": "Batal"}]
+    press(monkeypatch, None)
+    tab.delete_btn.click()
+    assert tab.list.count() == len(DEFAULT_JURUS) and tab.engine._pending is None
+    press(monkeypatch, t("btn_delete"))
     tab.delete_btn.click()
     assert [j["name"] for j in Store(tmp_path).load_jurus()] == [j["name"] for j in DEFAULT_JURUS if j["name"] != "Beep 1"]
     assert len(tab.engine._pending.rules.jurus) == len(DEFAULT_JURUS) - 1 and tab.list.count() == len(DEFAULT_JURUS) - 1
+
+
+def test_a_fresh_tab_has_the_first_jurus_selected(tmp_path, qapp):
+    tab = jurus_tab(tmp_path)
+    assert tab.list.currentRow() == 0
+    assert all(b.isEnabled() for b in (tab.add_btn, tab.edit_btn, tab.delete_btn, tab.try_btn))
+
+
+def test_edit_delete_and_try_need_a_selected_jurus(tmp_path, monkeypatch, qapp):
+    tab = jurus_tab(tmp_path, [])
+    needing_one = (tab.edit_btn, tab.delete_btn, tab.try_btn)
+    assert tab.list.currentRow() == -1 and tab.add_btn.isEnabled() and not any(b.isEnabled() for b in needing_one)
+    added = type("E", (), {"__init__": lambda self, *a, **k: None, "exec": lambda self: QDialog.Accepted,
+                           "deleteLater": lambda self: None, "value": lambda self: DEFAULT_JURUS[1]})
+    monkeypatch.setattr(ui, "JurusEditor", added)
+    tab.add_btn.click()
+    assert tab.list.currentRow() == 0 and all(b.isEnabled() for b in needing_one)
+    press(monkeypatch, t("btn_delete"))
+    tab.delete_btn.click()
+    assert tab.list.count() == 0 and not any(b.isEnabled() for b in needing_one)
 
 
 def test_try_sends_the_selected_jurus_to_the_engine(tmp_path, qapp):
@@ -501,9 +543,11 @@ def test_the_orb_sound_pickers(tmp_path, monkeypatch, qapp):
 
 def test_the_colour_button_stores_the_colour_as_hex(tmp_path, monkeypatch, qapp):
     e = editor(tmp_path, DEFAULT_JURUS[-1])
-    monkeypatch.setattr(ui.QColorDialog, "getColor", staticmethod(lambda *a, **k: QColor(255, 0, 128)))
+    asked = []
+    monkeypatch.setattr(ui.QColorDialog, "getColor", staticmethod(lambda *a, **k: asked.append(a) or QColor(255, 0, 128)))
     e.color_btn.click()
     assert e.value()["visual"]["color"] == "#ff0080"
+    assert asked[0][1:] == (e, t("ed_color"))  # parent and a title in the app's language
     monkeypatch.setattr(ui.QColorDialog, "getColor", staticmethod(lambda *a, **k: QColor()))  # cancelled: invalid
     e.color_btn.click()
     assert e.value()["visual"]["color"] == "#ff0080"
@@ -520,15 +564,26 @@ def test_recorded_gestures_are_listed_and_a_missing_one_is_kept_and_marked(tmp_p
     assert gone.gesture.currentText() == "⚠ rec:Gone" and gone.value()["gesture"] == "rec:Gone"
 
 
-def test_the_preview_plays_a_builtin_through_the_engine_and_never_raises(tmp_path, qapp):
-    store, played = Store(tmp_path), []
+MEETING = {"enabled": True, "mic_device": "x", "output_device": "y", "mic_volume": 1.0, "sfx_volume": 0.8,
+           "max_latency_ms": 60}
+
+
+def test_the_preview_of_a_builtin_is_heard_on_the_monitor_and_not_in_the_meeting(tmp_path, qapp):
+    store = Store(tmp_path)
     engine = make_engine(store)
-    engine.audio.play = lambda *a: played.append(a)
+    engine.audio.add_meeting_mixer(MEETING)  # no devices needed
     e = JurusEditor(store, {**DEFAULT_JURUS[1], "sound": {"file": "builtin:finger_3", "mode": "once", "volume": 0.5}},
                     set(), engine=engine)
     e.preview_btn.click()
-    assert played == [("finger_3", 0.5)]
-    engine.audio.play = lambda *a: 1 / 0
+    assert engine.audio.mixer._queue.qsize() == 1 and engine.audio.meeting_mixer._queue.qsize() == 0
+    assert engine.audio.mixer._queue.get_nowait() == ("finger_3", 0.5, False)
+
+
+def test_the_preview_never_raises(tmp_path, qapp):
+    store = Store(tmp_path)
+    engine = make_engine(store)
+    e = JurusEditor(store, DEFAULT_JURUS[1], set(), engine=engine)
+    engine.audio.mixer.play = lambda *a: 1 / 0
     e.preview_btn.click()  # logged, not raised
     silent = editor(tmp_path, DEFAULT_JURUS[1])
     silent.preview_btn.click()  # no engine: nothing to play through, no crash
