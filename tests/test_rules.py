@@ -71,7 +71,7 @@ def test_release_stops_a_non_exclusive_sound_and_new_jurus_cuts_old(rig):
     run(r, {ONE}, np.arange(0, 0.5, 0.04))
     run(r, {TWO}, np.arange(0.5, 1.0, 0.04))        # straight from one gesture to the next
     assert a.calls == [("play", "finger_1", 1.0, False), ("stop", "finger_1"), ("play", "finger_2", 1.0, False)]
-    r.update(set(), 1.0, False, False)
+    r.update(set(), 1.5, False, False)                  # let go (a dropout under 0.3 s doesn't count)
     assert a.calls[-1] == ("stop", "finger_2")
 
 
@@ -105,7 +105,7 @@ def test_loop_mode_plays_while_held(rig):
     a, r = rig(J("four", FOUR, sound=snd(4, "loop", 0.5)))
     run(r, {FOUR}, np.arange(0, 1.0, 0.04))
     assert a.calls == [("loop", "finger_4", 0.5)]
-    r.update(set(), 1.0, False, False)
+    r.update(set(), 1.5, False, False)
     assert a.calls == [("loop", "finger_4", 0.5), ("loop", "finger_4", 0.0)]
 
 
@@ -213,12 +213,14 @@ def test_visual_is_drawn_while_held_and_fades_after_release(dot, rig):
     run(r, {ONE}, [0.0, 0.2, 0.4])
     r.draw(frame, 0.4, None, True)
     assert frame.any()
-    r.update(set(), 0.5, False, False)
+    r.update(set(), 0.5, False, False)                  # a dropout: still up
     assert r.jurus[0].overlay.busy
-    r.update(set(), 0.8, False, False)
+    r.update(set(), 0.8, False, False)                  # let go: fading
+    assert r.jurus[0].overlay.busy
+    r.update(set(), 1.1, False, False)
     assert not r.jurus[0].overlay.busy
     frame[:] = 0
-    r.draw(frame, 0.8, None, True)
+    r.draw(frame, 1.1, None, True)
     assert not frame.any()
     # the editor's Try button: a held visual shows for 2 s without needing a gesture
     r.try_fire("pic", 5.0)
@@ -236,12 +238,58 @@ def test_exclusive_waits_for_its_visual_as_well(dot, rig):
     assert [j.cfg["name"] for j in run(r, {ONE}, [2.4])] == ["one"]
 
 
-def test_a_hand_edited_file_cannot_crash_the_build_or_a_frame(store, rig):
+def test_a_hand_edited_file_cannot_crash_the_build_or_a_frame(dot, store, rig):
     cfgs = ["junk", {"name": "no gesture"}, J("odd numbers", ONE, hold="soon", sound=snd(volume="loud")),
             J("v", TWO, visual="picture"), J("s", THREE, sound="boom"),
-            J("o", OPEN_PALM, sound=None, visual={"type": "orb"}, orb_sounds=["x"])]
+            J("o", OPEN_PALM, sound=None, visual={"type": "orb"}, orb_sounds=["x"]),
+            J("pic", FOUR, sound=None, visual={**IMAGE, "size": None, "position": ["x"], "duration": "forever"})]
     jurus, _, _ = build(cfgs, store, [], 48000)
-    assert [j.problem for j in jurus] == ["gesture", "gesture", None, "visual", "sound", "sound"]
+    assert [j.problem for j in jurus] == ["gesture", "gesture", None, "visual", "sound", "sound", None]
     a, r = rig(*cfgs)
-    assert [j.name for j in run(r, {ONE, TWO, THREE, OPEN_PALM}, [0.0, 0.4])] == ["odd numbers"]
+    active = {ONE, TWO, THREE, OPEN_PALM, FOUR}
+    assert [j.name for j in run(r, active, [0.0, 0.4])] == ["odd numbers", "pic"]
     assert a.calls == [("play", "finger_1", 1.0, False)]            # volume and hold fell back to their defaults
+    frame = np.zeros((200, 200, 3), np.uint8)
+    r.draw(frame, 0.4, None, True)                                  # size, position and duration fell back too
+    assert frame.any()
+    assert {k: r.jurus[-1].overlay.visual[k] for k in ("size", "position", "duration")} ==         {"size": 0.4, "position": "center", "duration": "held"}
+
+
+def test_malformed_recorded_gestures_are_dropped_not_fatal(store):
+    h = Hand(*hand3d(pick(2), False))
+    good = make_template("peace", [[h]] * 10)
+    templates = ["junk", {"name": "ok"}, {"hands": 1}, {**good, "name": "short", "mean": [0.0]},
+                 {**good, "name": "words", "mean": ["a"] * 210}, {**good, "name": "blind", "sensitivity": None}, good]
+    cfgs = [J(n, f"rec:{n}") for n in ("peace", "ok", "short", "words", "blind")]
+    jurus, _, _ = build(cfgs, store, templates, 48000)
+    assert [j.problem for j in jurus] == [None, "gesture", "gesture", "gesture", "gesture"]
+    assert active_ids(TWO, [h], h, h.lm, 720, M_CFG, templates) == {"rec:peace"}
+
+
+def test_a_tracker_dropout_shorter_than_the_gap_does_not_release_or_refire(rig):
+    a, r = rig(J("one", ONE))
+    assert len(run(r, {ONE}, [0.0, 0.2, 0.4])) == 1
+    assert run(r, set(), [0.5]) == [] and run(r, {ONE}, [0.6]) == []               # a one-frame dropout
+    assert run(r, set(), [0.7, 0.8]) == []
+    assert a.calls == [("play", "finger_1", 1.0, False)]                          # no stop, no second play
+    run(r, set(), [1.0])                                                           # gone for over 0.3 s
+    assert a.calls[1:] == [("stop", "finger_1")]
+    assert len(run(r, {ONE}, [1.1, 1.2, 1.5])) == 1                                # and it re-arms
+
+
+def test_a_vanish_jurus_is_not_released_by_its_own_vanish_running(rig):
+    a, r = rig(J("vanish", SEAL, visual={"type": "vanish"}))                       # not exclusive
+    assert len(run(r, {SEAL}, [0.0, 0.4])) == 1
+    assert run(r, {SEAL}, [0.5, 0.6, 0.8], blocked=True) == []                     # the engine: vanish running
+    assert a.calls == [("play", "finger_1", 1.0, False)]
+    r.update(set(), 1.5, False, False)
+    assert a.calls[-1] == ("stop", "finger_1")                                     # letting go still stops it
+
+
+def test_a_late_release_does_not_stop_the_sound_that_replaced_it(rig):
+    a, r = rig(J("one", ONE), J("two", TWO, hold=0.1))                             # the same sound
+    run(r, {ONE}, [0.0, 0.4])
+    run(r, {TWO}, [0.5, 0.65, 0.8])                                                # one is let go at 0.8, after two played
+    assert a.calls == [("play", "finger_1", 1.0, False)] * 2
+    run(r, set(), [1.2])
+    assert a.calls[2:] == [("stop", "finger_1")]

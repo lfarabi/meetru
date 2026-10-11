@@ -4,9 +4,11 @@ decides every frame which of them fire.
 Behaviour per jurus: it fires once per hold of its gesture and re-arms after release; a one-hand jurus
 waits while two hands are about to pose; nothing fires while the orb or a vanish is busy or while
 another *exclusive* jurus is still playing its sound or showing its picture. Letting go stops a
-non-exclusive sound (an exclusive one plays to the end) and fades the visual. A jurus whose gesture,
+non-exclusive sound (an exclusive one plays to the end) and fades the visual; a tracker dropout shorter
+than the trigger's gap doesn't count as letting go. A jurus whose gesture,
 sound or visual can't be used is kept, flagged in `problem`, and never fires."""
 import logging
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -15,11 +17,12 @@ import poses
 from audio import BUILTIN_SOUNDS, load_sound
 from gestures import BUILTIN_GESTURES, RAISED_FIST, SEAL, TWO_HAND_GESTURES, WOW
 from jutsu import HoldTrigger, raised_fist, seal_point, wow_pose
-from overlay import OverlayPlayer, visual_clip
+from overlay import POSITIONS, OverlayPlayer, visual_clip
 from tracking import palm_center
 
 log = logging.getLogger(__name__)
 ORB_SOUNDS = ("activation", "charge_loop", "blast", "power_down")  # the sounds an orb jurus may replace
+MEAN_LENGTH = {1: 210, 2: 421}  # poses: one hand's pairwise distances; two hands: both, plus the wrist gap
 TRY_SECONDS = 2.0   # how long the editor's Try button shows a visual that would otherwise be held
 
 
@@ -34,6 +37,7 @@ class Jurus:
     trigger: HoldTrigger
     fired_at: float | None = None   # when it last fired (an exclusive jurus blocks others from here)
     holding: bool = False           # fired and its gesture is still being held
+    seen_at: float = 0.0            # while holding: when the gesture was last seen
 
     @property
     def name(self) -> str:
@@ -61,9 +65,28 @@ class Jurus:
         return _number((self.cfg.get("sound") or {}).get("volume"), 1.0)
 
 
-def _number(value, default: float) -> float:
-    """A hand-edited jurus.yaml may hold anything; a non-number must not reach the audio thread or the clock."""
-    return value if isinstance(value, (int, float)) else default
+def _number(value, default):
+    """A hand-edited jurus.yaml may hold anything; a non-number must not reach the audio thread, the clock
+    or the drawing code."""
+    return value if isinstance(value, (int, float)) and math.isfinite(value) else default
+
+
+def valid_templates(templates: list) -> list[dict]:
+    """The recorded gestures that can be matched. A hand-edited gestures.json may hold anything, and
+    matching runs every frame, so one bad entry would stop the app."""
+    def ok(t) -> bool:
+        return (isinstance(t, dict) and isinstance(t.get("name"), str) and t.get("hands") in (1, 2)
+                and isinstance(t.get("mean"), list) and len(t["mean"]) == MEAN_LENGTH[t["hands"]]
+                and all(isinstance(x, (int, float)) for x in t["mean"])
+                and all(isinstance(t.get(k), (int, float)) for k in ("radius", "sensitivity")))
+    return [t for t in templates if ok(t)]
+
+
+def _clean_visual(visual: dict) -> dict:
+    """The visual with the numbers and the position the drawing code relies on made safe."""
+    position = visual.get("position")
+    return {**visual, "size": _number(visual.get("size"), 0.4), "duration": _number(visual.get("duration"), "held"),
+            "position": position if position in POSITIONS else "center"}
 
 
 def _decode(ref: str, store, sr: int) -> np.ndarray:
@@ -91,7 +114,7 @@ def _sound_key(ref: str, store, sr: int, sounds: dict) -> str:
 
 def build(jurus_cfg: list[dict], store, templates: list[dict], sr: int) -> tuple[list[Jurus], dict[str, np.ndarray], set[str]]:
     """The jurus, the sound set to hand to the audio engine, and the names of its looping sounds."""
-    by_name = {t["name"]: t for t in templates}
+    by_name = {t["name"]: t for t in valid_templates(templates)}
     sounds: dict[str, np.ndarray] = {}
     loops: set[str] = set()
     out = []
@@ -123,7 +146,8 @@ def build(jurus_cfg: list[dict], store, templates: list[dict], sr: int) -> tuple
         def make_overlay():
             # the engine owns the orb and the vanish smoke (it resolves the smoke file itself)
             if visual and j.kind not in ("orb", "vanish"):
-                j.overlay = OverlayPlayer(visual_clip(visual, store.resolve(visual.get("file") or "")), visual)
+                clean = _clean_visual(visual)
+                j.overlay = OverlayPlayer(visual_clip(clean, store.resolve(clean.get("file") or "")), clean)
 
         for problem, stage in (("gesture", check_gesture), ("sound", load_sounds), ("visual", make_overlay)):
             try:
@@ -146,6 +170,7 @@ def active_ids(gesture: str, hands, primary, lm, frame_h: int, cfg: dict, templa
         ids.add(SEAL)
     if wow_pose(hands, g["finger_straight"]):
         ids.add(WOW)
+    templates = valid_templates(templates)
     for n in (1, 2):  # matched per hand count, so a one-hand match can't hide a two-hand one
         if name := poses.best_match([t for t in templates if t["hands"] == n], hands, primary):
             if n == 1:
@@ -162,6 +187,7 @@ def hands_center(hands) -> np.ndarray | None:
 class Rules:
     def __init__(self, jurus: list[Jurus], audio):
         self.jurus, self.audio = jurus, audio
+        self._voice: Jurus | None = None   # whose one-shot sound was requested last: the one that is playing
 
     @property
     def orb_jurus(self) -> Jurus | None:
@@ -182,13 +208,14 @@ class Rules:
                 self.audio.set_loop(j.sound, j.volume)
             else:
                 self.audio.play(j.sound, j.volume, j.exclusive)
+                self._voice = j
 
     def _release(self, j: Jurus, t: float):
         j.holding = False
         if j.sound:
             if j.looped:
                 self.audio.set_loop(j.sound, 0.0)
-            elif not j.exclusive:
+            elif not j.exclusive and self._voice is j:  # else a later sound already cut it (maybe under the same name)
                 self.audio.stop(j.sound)
         if j.overlay:
             j.overlay.release(t)
@@ -201,12 +228,19 @@ class Rules:
                 j.overlay.update(t)
         todo = [j for j in self.jurus if j.kind != "orb"]
         for j in todo:  # let go first, so a stop never lands after the play that replaces it
-            if j.holding and not (j.gesture in active and self._allowed(j, t, two_hands, blocked)):
+            if not j.holding:
+                continue
+            if j.gesture in active:
+                j.seen_at = t
+            # a dropout shorter than the trigger's gap isn't letting go (it won't re-arm either); the
+            # engine passes blocked while a vanish runs, which must not cut the vanish jurus's own sound
+            if (t - j.seen_at > j.trigger.gap
+                    or not self._allowed(j, t, two_hands, blocked and j.kind != "vanish")):
                 self._release(j, t)
         fired = []
         for j in todo:  # in list order: the first of two simultaneous exclusive jurus wins
             if j.trigger.update(j.gesture in active, t, self._allowed(j, t, two_hands, blocked)):
-                j.fired_at, j.holding = t, True
+                j.fired_at, j.seen_at, j.holding = t, t, True
                 self._play(j, j.looped)
                 if j.overlay:
                     j.overlay.start(t)
