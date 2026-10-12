@@ -990,17 +990,22 @@ def test_a_slider_change_that_cannot_be_saved_says_so(tmp_path, monkeypatch, qap
     assert shown == [message]
 
 
-@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"), 1e308, -5, 99, True])
-def test_a_hand_edited_sensitivity_does_not_crash_the_tab(tmp_path, qapp, bad):
-    tab = gesture_tab(tmp_path, [gesture("peace", sensitivity=bad)])   # valid_templates lets numbers through, NaN too
+@pytest.mark.parametrize("big", [1e308, 99, True])
+def test_a_sensitivity_beyond_the_slider_does_not_crash_the_tab(tmp_path, qapp, big):
+    tab = gesture_tab(tmp_path, [gesture("peace", sensitivity=big)])
     assert 8 <= tab.sens.value() <= 30 and tab.sens_value.text().endswith("×")
-    tab.on_status({"scores": {"peace": float("nan")}})   # a NaN tolerance makes a NaN score
+    tab.on_status({"scores": {"peace": float("nan")}})
     assert (tab.score_bar.value(), tab.score_bar.format()) == (0, "—")
 
 
-def test_a_non_finite_sensitivity_is_replaced_by_the_default_and_a_rerecording_heals_it(tmp_path, qapp):
-    tab = gesture_tab(tmp_path, [gesture("peace", sensitivity=float("nan"))])
-    assert tab.sens.value() == 15
-    tab.rerecord_btn.click()
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"), -5, 0])
+def test_an_unusable_sensitivity_drops_the_recording_and_recording_it_again_heals_its_jurus(tmp_path, monkeypatch,
+                                                                                            qapp, bad):
+    tab = gesture_tab(tmp_path, [gesture("peace", sensitivity=bad)], [{**DEFAULT_JURUS[1], "gesture": "rec:peace"}])
+    assert tab.recorded_list.count() == 0 and not tab.sens.isEnabled()
+    assert JurusTab(tab.store, tab.engine).list.item(0).text().startswith("⚠")
+    ask(monkeypatch, "peace")                                          # the name is free again
+    tab.record_btn.click()
     tab.on_recorded(dict(HAND))
-    assert Store(tmp_path).load_gestures()[0]["sensitivity"] == 1.5
+    assert tab.recorded_list.count() == 1 and tab.sens.value() == 15
+    assert "⚠" not in JurusTab(tab.store, tab.engine).list.item(0).text()

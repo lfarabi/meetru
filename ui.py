@@ -16,7 +16,6 @@ from engine import Engine
 from gestures import BUILTIN_GESTURES
 from i18n import t
 from overlay import POSITIONS
-from poses import DEFAULT_SENSITIVITY
 from rules import ORB_SOUNDS, _number, build, valid_templates
 
 log = logging.getLogger(__name__)
@@ -691,9 +690,8 @@ class GestureTab(QWidget):
         g = self._find(self._selected())
         if g:
             self.sens.blockSignals(True)   # showing a value is not the user moving the slider
-            # a hand-edited file may hold NaN or 1e308; the slider shows the nearest it can
-            steps = _number(g["sensitivity"], DEFAULT_SENSITIVITY) * 10
-            self.sens.setValue(round(min(max(steps, SENSITIVITY_STEPS[0]), SENSITIVITY_STEPS[1])))
+            # a hand-edited file may hold 1e308; the slider shows the nearest it can
+            self.sens.setValue(round(min(max(g["sensitivity"] * 10, SENSITIVITY_STEPS[0]), SENSITIVITY_STEPS[1])))
             self.sens.blockSignals(False)
         self.sens.setEnabled(g is not None)
         self._show_sensitivity()
@@ -722,7 +720,7 @@ class GestureTab(QWidget):
 
     def _score(self, score: float | None):
         """The bar for the selected recording's match score: full at 1, empty at 0 or below, "—" when unknown."""
-        score = _number(score, None)   # a NaN tolerance in a hand-edited file gives a NaN score
+        score = _number(score, None)
         if score is None:
             self.score_bar.setValue(0)
             self.score_bar.setFormat("—")
@@ -779,7 +777,7 @@ class GestureTab(QWidget):
             old = self._find(name)
             template = {**result, "name": name}
             if old:   # a re-recording keeps the tuning
-                template["sensitivity"] = _number(old["sensitivity"], template["sensitivity"])
+                template["sensitivity"] = old["sensitivity"]
             if self._save([template if g is old else g for g in self.items] if old else [*self.items, template]):
                 self._show(select=name)
         else:

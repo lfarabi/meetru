@@ -273,6 +273,23 @@ def test_malformed_recorded_gestures_are_dropped_not_fatal(store):
     assert active_ids(TWO, [h], h, h.lm, 720, M_CFG, templates) == {"rec:peace"}
 
 
+@pytest.mark.parametrize("bad", [{"radius": 0}, {"sensitivity": 0}, {"radius": -0.1}, {"sensitivity": -2},
+                                 {"radius": 10 ** 400}, {"sensitivity": float("nan")}, {"radius": float("inf")},
+                                 {"mean": [10 ** 400] * 210}, {"mean": [float("nan")] * 210}])
+def test_a_recorded_gesture_with_an_unusable_number_is_dropped(store, bad):
+    h = Hand(*hand3d(pick(2), False))
+    broken = {**make_template("peace", [[h]] * 10), **bad}   # would raise or never match, every frame a hand is up
+    jurus, _, _ = build([J("peace", "rec:peace")], store, [broken], 48000)
+    assert jurus[0].problem == "gesture"
+    assert active_ids(TWO, [h], h, h.lm, 720, M_CFG, [broken]) == {TWO}
+
+
+def test_an_absurd_visual_size_is_kept_to_the_editors_range(dot, rig):
+    a, r = rig(J("big", ONE, sound=None, visual={**IMAGE, "size": 1e6}),
+               J("small", TWO, sound=None, visual={**IMAGE, "size": -1}))
+    assert [j.overlay.visual["size"] for j in r.jurus] == [3.0, 0.05]
+
+
 def test_a_tracker_dropout_shorter_than_the_gap_does_not_release_or_refire(rig):
     a, r = rig(J("one", ONE))
     assert len(run(r, {ONE}, [0.0, 0.2, 0.4])) == 1

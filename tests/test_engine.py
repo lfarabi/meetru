@@ -198,6 +198,22 @@ def test_one_bad_frame_does_not_stop_the_loop(tmp_path, qapp):
     assert alive and len(frames) >= 8 and e.tracker.calls > 3
 
 
+def test_effects_that_fail_still_send_the_plain_camera_and_say_so(tmp_path, qapp):
+    e = make_engine(Store(tmp_path))
+    e.cap, e.vcam = FakeCap(), FakeVcam()
+    frames, statuses = [], []
+    e.frame_ready.connect(frames.append)
+    e.status.connect(statuses.append)
+
+    def broken(frame, t):
+        frame[:] = 7                     # drew half the effects, then failed
+        raise RuntimeError("bad file")
+    e.step = broken
+    e._iterate()
+    assert len(e.vcam.sent) == 1 and not e.vcam.sent[0].any()   # the raw camera frame, not a frozen meeting
+    assert len(frames) == 1 and statuses[-1]["message"] == "engine_error"
+
+
 def test_a_stuck_swap_cannot_trap_the_thread_or_leave_devices_open(tmp_path, qapp):
     cap = FakeCap()
     e = make_engine(Store(tmp_path), {**DEFAULT_SETTINGS, "virtual_camera": False})
@@ -241,6 +257,13 @@ class FakeCap:
 
 class FakeVcam:
     closed = False
+    width, height = 640, 360
+
+    def __init__(self):
+        self.sent = []
+
+    def send(self, frame):
+        self.sent.append(frame.copy())
 
     def close(self):
         self.closed = True

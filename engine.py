@@ -201,12 +201,19 @@ class Engine(QThread):
         now = time.perf_counter()
         self._fps = 0.9 * self._fps + 0.1 / max(now - self._last, 1e-6)
         self._last = now
-        outgoing, preview = self.step(frame, now)
+        raw = frame.copy()  # step draws into `frame`
+        try:
+            outgoing, preview = self.step(frame, now)
+            status = self._status(self._fps)
+        except Exception:  # e.g. a bad file: the meeting gets the plain camera, not a frozen picture
+            self._oops("Drawing the effects")
+            outgoing, preview = raw, cv2.flip(raw, 1) if self.settings["mirror_preview"] else raw
+            status = {**self._status(self._fps), "message": "engine_error", "message_args": {}}
         if self.vcam is not None and outgoing.shape[:2] == (self.vcam.height, self.vcam.width):
             self.vcam.send(outgoing)
         h, w = preview.shape[:2]
         self.frame_ready.emit(QImage(preview.data, w, h, preview.strides[0], QImage.Format.Format_BGR888).copy())
-        self.status.emit(self._status(self._fps))
+        self.status.emit(status)
 
     def _close(self):
         for close in (self.vcam and self.vcam.close, self.audio and self.audio.close,

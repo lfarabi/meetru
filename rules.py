@@ -68,7 +68,10 @@ class Jurus:
 def _number(value, default):
     """A hand-edited jurus.yaml may hold anything; a non-number must not reach the audio thread, the clock
     or the drawing code."""
-    return value if isinstance(value, (int, float)) and math.isfinite(value) else default
+    try:
+        return value if isinstance(value, (int, float)) and math.isfinite(value) else default
+    except OverflowError:  # an int too big for a float
+        return default
 
 
 def valid_templates(templates: list) -> list[dict]:
@@ -77,15 +80,17 @@ def valid_templates(templates: list) -> list[dict]:
     def ok(t) -> bool:
         return (isinstance(t, dict) and isinstance(t.get("name"), str) and t.get("hands") in (1, 2)
                 and isinstance(t.get("mean"), list) and len(t["mean"]) == MEAN_LENGTH[t["hands"]]
-                and all(isinstance(x, (int, float)) for x in t["mean"])
-                and all(isinstance(t.get(k), (int, float)) for k in ("radius", "sensitivity")))
+                and all(_number(x, None) is not None for x in t["mean"])
+                and all(_number(t.get(k), 0) > 0 for k in ("radius", "sensitivity")))
     return [t for t in templates if ok(t)]
 
 
 def _clean_visual(visual: dict) -> dict:
-    """The visual with the numbers and the position the drawing code relies on made safe."""
+    """The visual with the numbers and the position the drawing code relies on made safe; the size is kept to
+    the editor's range."""
     position = visual.get("position")
-    return {**visual, "size": _number(visual.get("size"), 0.4), "duration": _number(visual.get("duration"), "held"),
+    return {**visual, "size": min(max(_number(visual.get("size"), 0.4), 0.05), 3.0),
+            "duration": _number(visual.get("duration"), "held"),
             "position": position if position in POSITIONS else "center"}
 
 

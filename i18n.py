@@ -137,6 +137,7 @@ STRINGS = {
         "room_countdown": "Keluar dari layar: foto ruangan kosong diambil dalam {seconds} detik",
         "room_captured": "Foto ruangan kosong tersimpan",
         "no_room_photo": "Belum ada foto ruangan kosong: tekan Foto ruangan (B) dulu",
+        "engine_error": "Ada masalah saat menggambar efek; kamera biasa yang sedang dikirim",
         "record_countdown": "Siap-siap: gerakanmu direkam dalam {seconds} detik",
         "recording": "Merekam... tahan gerakanmu",
         "problems_text": "File ini tidak bisa dibaca, jadi disisihkan sebagai .broken dan pengaturan awal "
@@ -276,6 +277,7 @@ STRINGS = {
         "room_countdown": "Leave the frame: photo of the empty room in {seconds}s",
         "room_captured": "Empty-room photo saved",
         "no_room_photo": "No empty-room photo yet: press Room photo (B) first",
+        "engine_error": "Something went wrong drawing the effects; the plain camera is being sent",
         "record_countdown": "Get ready: your gesture is recorded in {seconds}s",
         "recording": "Recording... hold your pose",
         "problems_text": "These files could not be read, so they were set aside as .broken and defaults "
