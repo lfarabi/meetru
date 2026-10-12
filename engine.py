@@ -310,8 +310,10 @@ class Engine(QThread):
         if not s.machine:
             return HIDDEN, 0.0
         j = s.orb_jurus
+        # a recorded match outranks the built-in gesture it replaced; any other raw gesture still goes in, as the
+        # FOUR tolerance and the silent fade need it
         orb_in = (NO_HAND if self.vanish.busy or (two_hands and j.hands == 1)
-                  else j.gesture if j.gesture in active else gesture)
+                  else j.gesture if j.gesture in active else NO_HAND if gesture == j.gesture else gesture)
         state = s.machine.update(orb_in, -float(self._normal[2]) if lm is not None else None, t)  # palm-to-camera
         if lm is None:
             return state, 0.0

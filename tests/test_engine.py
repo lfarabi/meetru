@@ -131,6 +131,13 @@ def test_the_orb_can_be_summoned_by_a_recorded_gesture(tmp_path, qapp):
     assert e._status(0.0)["scores"]["peace"] > 0.9
 
 
+def test_a_recorded_match_on_the_orbs_own_gesture_does_not_summon_it(tmp_path, qapp):
+    peace = Hand(*hand3d(pick(2), False))                  # reads as TWO, and matches the recording
+    e = orb_engine(tmp_path, "TWO", [peace], [make_template("peace", [[peace]] * 10)])
+    run_frames(e, 0.5, time.perf_counter())
+    assert e._status(0.0)["gesture"] == "rec:peace" and e._setup.machine.state == HIDDEN
+
+
 def test_a_one_hand_orb_gives_way_to_a_two_hand_pose(tmp_path, qapp):
     peace = Hand(*hand3d(pick(2), False))
     e = orb_engine(tmp_path, "TWO", [peace])
