@@ -99,6 +99,7 @@ STRINGS = {
         "err_gest_colon": "Nama gerakan tidak boleh memakai tanda titik dua (:).",
         "confirm_delete_gesture": "Hapus gerakan \"{name}\"? Jurus yang memakainya tidak ikut terhapus, "
                                   "tapi diberi tanda ⚠.",
+        "err_gest_save": "Gerakan tidak bisa disimpan (disk penuh atau folder terkunci?): {error}",
         "record_failed_title": "Perekaman gagal",
         "record_no_hand": "Tidak ada tangan yang terlihat. Angkat tanganmu di depan kamera lalu coba lagi.",
         "record_unsteady": "Tanganmu bergerak atau keluar dari kamera. Tahan pose dengan tenang lalu coba lagi.",
@@ -237,6 +238,7 @@ STRINGS = {
         "err_gest_colon": "A gesture name can't contain a colon (:).",
         "confirm_delete_gesture": "Delete the gesture \"{name}\"? Jurus that use it are kept, "
                                   "but marked with ⚠.",
+        "err_gest_save": "The gestures could not be saved (is the disk full or the folder locked?): {error}",
         "record_failed_title": "Recording failed",
         "record_no_hand": "No hand was seen. Hold your hand in front of the camera and try again.",
         "record_unsteady": "Your hand moved or went out of view. Hold the pose steady and try again.",

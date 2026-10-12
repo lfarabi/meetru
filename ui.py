@@ -7,15 +7,16 @@ from PySide6.QtCore import Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QKeySequence, QPixmap, QShortcut
 from PySide6.QtMultimedia import QAudioOutput, QMediaDevices, QMediaPlayer
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
-                               QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
-                               QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QProgressBar, QPushButton,
-                               QSizePolicy, QSlider, QTabWidget, QVBoxLayout, QWidget)
+                               QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout, QHBoxLayout, QInputDialog,
+                               QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
+                               QProgressBar, QPushButton, QSizePolicy, QSlider, QTabWidget, QVBoxLayout, QWidget)
 
 import audio
 from engine import Engine
 from gestures import BUILTIN_GESTURES
 from i18n import t
 from overlay import POSITIONS
+from poses import DEFAULT_SENSITIVITY
 from rules import ORB_SOUNDS, _number, build, valid_templates
 
 log = logging.getLogger(__name__)
@@ -134,6 +135,18 @@ def pick_file(parent, store, kind: tuple[str, str]) -> str | None:
     except OSError as e:
         QMessageBox.warning(parent, "MeetCam", t("err_import", error=e))
         return None
+
+
+def _confirm_delete(parent, text: str) -> bool:
+    """Ask whether to delete; Enter means no."""
+    # not QMessageBox.question: its Yes/No buttons would be in English whatever the language
+    box = QMessageBox(QMessageBox.Question, "MeetCam", text, parent=parent)
+    delete = box.addButton(t("btn_delete"), QMessageBox.AcceptRole)
+    box.setDefaultButton(box.addButton(t("btn_cancel"), QMessageBox.RejectRole))
+    box.exec()
+    confirmed = box.clickedButton() is delete
+    box.deleteLater()
+    return confirmed
 
 
 def gesture_label(gesture) -> str:
@@ -561,13 +574,7 @@ class JurusTab(QWidget):
     def delete(self):
         if (row := self._selected()) is None:
             return
-        # not QMessageBox.question: its Yes/No buttons would be in English whatever the language
-        box = QMessageBox(QMessageBox.Question, "MeetCam", t("confirm_delete", name=self.items[row].get("name", "")),
-                          parent=self)
-        delete = box.addButton(t("btn_delete"), QMessageBox.AcceptRole)
-        box.setDefaultButton(box.addButton(t("btn_cancel"), QMessageBox.RejectRole))   # Enter does not delete
-        box.exec()
-        if box.clickedButton() is delete:
+        if _confirm_delete(self, t("confirm_delete", name=self.items[row].get("name", ""))):
             del self.items[row]
             self.apply()
 
@@ -641,11 +648,28 @@ class GestureTab(QWidget):
         item = self.recorded_list.currentItem()
         return item.data(Qt.UserRole) if item else None
 
-    def _save(self):
-        """Write the recordings (any pending slider change with them) and tell the Jurus tab."""
+    def _warn_save(self, error: OSError):
+        QMessageBox.warning(self, "MeetCam", t("err_gest_save", error=error))
+
+    def _write(self, items: list | None = None) -> bool:
+        """Save the recordings (any pending slider change with them), or `items`, which are then the recordings. If
+        the disk refuses, say so and keep what was held: False."""
         self._timer.stop()
-        self.store.save_gestures(self.items)
-        self.gestures_changed.emit()
+        try:
+            self.store.save_gestures(self.items if items is None else items)
+        except OSError as e:
+            self._warn_save(e)
+            return False
+        if items is not None:
+            self.items = items
+        return True
+
+    def _save(self, items: list | None = None) -> bool:
+        """_write, then tell the Jurus tab."""
+        done = self._write(items)
+        if done:
+            self.gestures_changed.emit()
+        return done
 
     def _show(self, select: str | None = None):
         """Redraw the recordings with `select` (else what was selected, else the first) selected."""
@@ -667,7 +691,9 @@ class GestureTab(QWidget):
         g = self._find(self._selected())
         if g:
             self.sens.blockSignals(True)   # showing a value is not the user moving the slider
-            self.sens.setValue(round(g["sensitivity"] * 10))
+            # a hand-edited file may hold NaN or 1e308; the slider shows the nearest it can
+            steps = _number(g["sensitivity"], DEFAULT_SENSITIVITY) * 10
+            self.sens.setValue(round(min(max(steps, SENSITIVITY_STEPS[0]), SENSITIVITY_STEPS[1])))
             self.sens.blockSignals(False)
         self.sens.setEnabled(g is not None)
         self._show_sensitivity()
@@ -696,6 +722,7 @@ class GestureTab(QWidget):
 
     def _score(self, score: float | None):
         """The bar for the selected recording's match score: full at 1, empty at 0 or below, "—" when unknown."""
+        score = _number(score, None)   # a NaN tolerance in a hand-edited file gives a NaN score
         if score is None:
             self.score_bar.setValue(0)
             self.score_bar.setFormat("—")
@@ -745,19 +772,18 @@ class GestureTab(QWidget):
     def on_recorded(self, result):
         """The engine's answer: the template of the hand(s) it saw, or "no_hand" / "unsteady"."""
         name, self.pending_name = self.pending_name, None
+        self._sync_buttons()   # first: whatever goes wrong below, Record must work again
         if name is None:   # not asked for here
             return
         if isinstance(result, dict):
             old = self._find(name)
             template = {**result, "name": name}
             if old:   # a re-recording keeps the tuning
-                template["sensitivity"] = old["sensitivity"]
-            self.items = [template if g is old else g for g in self.items] if old else [*self.items, template]
-            self._save()
-            self._show(select=name)
+                template["sensitivity"] = _number(old["sensitivity"], template["sensitivity"])
+            if self._save([template if g is old else g for g in self.items] if old else [*self.items, template]):
+                self._show(select=name)
         else:
             QMessageBox.warning(self, t("record_failed_title"), t("record_" + str(result)))
-        self._sync_buttons()
 
     def rename(self):
         old = self._selected()
@@ -766,31 +792,29 @@ class GestureTab(QWidget):
         new = self._new_name(t("gest_rename_title"), old)
         if new is None or new == old:
             return
-        self._find(old)["name"] = new
+        g = self._find(old)
+        if not self._write([{**g, "name": new} if x is g else x for x in self.items]):
+            return   # nothing changed
         jurus = self.store.load_jurus()
         for j in jurus:   # the jurus that use it follow it
             if isinstance(j, dict) and j.get("gesture") == "rec:" + old:
                 j["gesture"] = "rec:" + new
-        self.store.save_jurus(jurus)
-        self._save()
+        try:
+            self.store.save_jurus(jurus)
+        except OSError as e:   # they keep the old name, which the Jurus tab marks with a warning sign
+            self._warn_save(e)
+        self.gestures_changed.emit()   # after the jurus are written: the Jurus tab reads them again
         self._show(select=new)
 
     def delete(self):
         name = self._selected()
         if name is None:
             return
-        # not QMessageBox.question: its Yes/No buttons would be in English whatever the language
-        box = QMessageBox(QMessageBox.Question, "MeetCam", t("confirm_delete_gesture", name=name), parent=self)
-        delete = box.addButton(t("btn_delete"), QMessageBox.AcceptRole)
-        box.setDefaultButton(box.addButton(t("btn_cancel"), QMessageBox.RejectRole))   # Enter does not delete
-        box.exec()
-        confirmed = box.clickedButton() is delete
-        box.deleteLater()
-        if confirmed:
+        if _confirm_delete(self, t("confirm_delete_gesture", name=name)):
             gone = self._find(name)
-            self.items = [g for g in self.items if g is not gone]
-            self._save()   # the jurus that use it stay, marked ⚠ by the Jurus tab's rebuild
-            self._show()
+            # the jurus that use it stay, marked ⚠ by the Jurus tab's rebuild
+            if self._save([g for g in self.items if g is not gone]):
+                self._show()
 
 
 class MainWindow(QMainWindow):
@@ -818,11 +842,16 @@ class MainWindow(QMainWindow):
         for light in (self.vcam_light, self.meeting_light):
             light.setTextFormat(Qt.RichText)
 
-        lights = QHBoxLayout()
-        for w in (self.vcam_light, self.meeting_light, self.fps_label, self.gesture_label):
-            lights.addWidget(w)
+        # two short rows of lights and two of buttons, not one long row each: the window's smallest width must
+        # fit a 1366 px laptop in Indonesian too
+        lights, info = QHBoxLayout(), QHBoxLayout()
+        lights.addWidget(self.vcam_light)
+        lights.addWidget(self.meeting_light)
         lights.addStretch()
-        lights.addWidget(self.invisible_badge)
+        info.addWidget(self.fps_label)
+        info.addWidget(self.gesture_label)
+        info.addStretch()
+        info.addWidget(self.invisible_badge)
 
         self.effects = self._button("btn_effects", "Space", lambda on: setattr(self.engine, "effects_on", on), True)
         self.mute = self._button("btn_mute", "M", lambda on: setattr(self.engine, "muted", on))
@@ -831,10 +860,10 @@ class MainWindow(QMainWindow):
         self.room.clicked.connect(self.engine.capture_room)
         QShortcut(QKeySequence("B"), self, activated=self.room.click)
         QShortcut(QKeySequence("Q"), self, activated=self.close)
-        buttons = QHBoxLayout()
-        for b in (self.effects, self.mute, self.room, self.skeleton):
+        buttons = QGridLayout()
+        for i, b in enumerate((self.effects, self.mute, self.room, self.skeleton)):
             b.setFocusPolicy(Qt.NoFocus)  # so Space is the Effects shortcut, never "press the focused button"
-            buttons.addWidget(b)
+            buttons.addWidget(b, i // 2, i % 2)
 
         self.tabs = QTabWidget()
         self.jurus_tab = JurusTab(store, self.engine)   # the first tab, so the one shown
@@ -852,6 +881,7 @@ class MainWindow(QMainWindow):
         left.addWidget(self.preview, 1)
         left.addWidget(self.message)
         left.addLayout(lights)
+        left.addLayout(info)
         left.addLayout(buttons)
         columns = QHBoxLayout(root)
         columns.addLayout(left, 1)  # the preview takes the width the tabs don't need

@@ -229,12 +229,21 @@ def test_a_null_skeleton_setting_does_not_crash_the_start(tmp_path, qapp):
     assert not MainWindow(store, M_CFG, make_engine(store)).skeleton.isChecked()
 
 
-def test_the_tabs_sit_to_the_right_of_the_preview_on_a_laptop_screen(window, qapp):
+@pytest.mark.parametrize("lang", ["en", "id"])
+def test_the_tabs_sit_to_the_right_of_the_preview_on_a_laptop_screen(tmp_path, qapp, lang):
+    i18n.set_language(lang)
+    store = Store(tmp_path)
+    window = MainWindow(store, M_CFG, make_engine(store))
     window.show()
     qapp.processEvents()
     left, right = (w.mapTo(window, QPoint(0, 0)).x() for w in (window.preview, window.tabs))
     assert right >= left + window.preview.width()
-    assert window.width() <= 1280 and window.height() <= 700  # fits 1366x768 with the taskbar
+    assert window.width() <= 1366 and window.height() <= 700  # fits 1366x768 with the taskbar
+    # the smallest the window can be made, with the widest texts the lights and the badge show
+    for on in (True, False):
+        window.on_status({**STATUS, "vcam": on, "meeting": on, "gesture": "RAISED_FIST", "invisible": True})
+        hint = window.minimumSizeHint()
+        assert hint.width() <= 1366 and hint.height() <= 680, (lang, on, hint)
 
 
 def test_a_broken_file_is_reported_once_the_window_is_up(tmp_path, qapp):
@@ -904,3 +913,94 @@ def test_the_gesture_tab_is_wired_into_the_window(tmp_path, monkeypatch, qapp):
     w.gesture_tab.record_btn.click()
     w.engine.recorded.emit({**HAND, "mean": [0.1] * 210})
     assert [g["name"] for g in store.load_gestures()] == ["victory", "clap"]
+
+
+def test_the_jurus_tab_and_the_gesture_tab_ask_alike_before_deleting(tmp_path, monkeypatch, qapp):
+    deleted = []
+    monkeypatch.setattr(ui.QMessageBox, "deleteLater", lambda self: deleted.append(self.text()))
+    press(monkeypatch, t("btn_cancel"))
+    jurus_tab(tmp_path).delete_btn.click()
+    gesture_tab(tmp_path / "g", [gesture("peace")]).delete_btn.click()
+    assert deleted == [t("confirm_delete", name="Orb"), t("confirm_delete_gesture", name="peace")]
+
+
+def failing_disk(monkeypatch, store, *names):
+    """Make these writes of the store fail as a locked disk does; returns the warning the user should get."""
+    def refuse(data):
+        raise PermissionError(13, "Permission denied")
+    for name in names:
+        monkeypatch.setattr(store, name, refuse)
+    return t("err_gest_save", error=PermissionError(13, "Permission denied"))
+
+
+def test_a_recording_that_cannot_be_saved_is_reported_and_the_buttons_come_back(tmp_path, monkeypatch, qapp):
+    shown = warnings(monkeypatch)
+    tab = gesture_tab(tmp_path, [gesture("old")])
+    message = failing_disk(monkeypatch, tab.store, "save_gestures")
+    changed = []
+    tab.gestures_changed.connect(lambda: changed.append(1))
+    tab.pending_name = "peace"
+    tab._sync_buttons()
+    assert not tab.record_btn.isEnabled()
+    tab.on_recorded(dict(HAND))   # no crash
+    assert shown == [message] and "Permission denied" in message
+    assert tab.pending_name is None and all(b.isEnabled() for b in buttons(tab)) and changed == []
+    assert [g["name"] for g in tab.items] == ["old"] and tab.recorded_list.count() == 1   # memory = disk
+
+
+def test_a_rename_that_cannot_be_saved_changes_nothing_and_says_so(tmp_path, monkeypatch, qapp):
+    shown = warnings(monkeypatch)
+    tab = gesture_tab(tmp_path, [gesture("peace")], [{**DEFAULT_JURUS[1], "gesture": "rec:peace"}])
+    message = failing_disk(monkeypatch, tab.store, "save_gestures")
+    ask(monkeypatch, "victory")
+    tab.rename_btn.click()
+    assert shown == [message] and tab.items[0]["name"] == "peace" and tab.recorded_list.item(0).text() == "🖐 peace"
+    assert Store(tmp_path).load_jurus()[0]["gesture"] == "rec:peace"   # the jurus were not touched either
+
+
+def test_a_rename_whose_jurus_cannot_be_saved_says_so_and_the_rename_stands(tmp_path, monkeypatch, qapp):
+    shown = warnings(monkeypatch)
+    tab = gesture_tab(tmp_path, [gesture("peace")], [{**DEFAULT_JURUS[1], "gesture": "rec:peace"}])
+    message = failing_disk(monkeypatch, tab.store, "save_jurus")
+    changed = []
+    tab.gestures_changed.connect(lambda: changed.append(1))
+    ask(monkeypatch, "victory")
+    tab.rename_btn.click()
+    # the jurus keep the old name, so the Jurus tab (told by gestures_changed) marks them with the warning sign
+    assert shown == [message] and changed == [1]
+    assert [g["name"] for g in Store(tmp_path).load_gestures()] == ["victory"] and tab.items[0]["name"] == "victory"
+    assert tab.recorded_list.item(0).text() == "🖐 victory"
+
+
+def test_a_delete_that_cannot_be_saved_keeps_the_gesture_and_says_so(tmp_path, monkeypatch, qapp):
+    shown = warnings(monkeypatch)
+    tab = gesture_tab(tmp_path, [gesture("peace")])
+    message = failing_disk(monkeypatch, tab.store, "save_gestures")
+    press(monkeypatch, t("btn_delete"))
+    tab.delete_btn.click()
+    assert shown == [message] and tab.recorded_list.count() == 1 and [g["name"] for g in tab.items] == ["peace"]
+
+
+def test_a_slider_change_that_cannot_be_saved_says_so(tmp_path, monkeypatch, qapp):
+    shown = warnings(monkeypatch)
+    tab = gesture_tab(tmp_path, [gesture("peace")])
+    message = failing_disk(monkeypatch, tab.store, "save_gestures")
+    tab.sens.setValue(20)
+    tab._timer.timeout.emit()
+    assert shown == [message]
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"), 1e308, -5, 99, True])
+def test_a_hand_edited_sensitivity_does_not_crash_the_tab(tmp_path, qapp, bad):
+    tab = gesture_tab(tmp_path, [gesture("peace", sensitivity=bad)])   # valid_templates lets numbers through, NaN too
+    assert 8 <= tab.sens.value() <= 30 and tab.sens_value.text().endswith("×")
+    tab.on_status({"scores": {"peace": float("nan")}})   # a NaN tolerance makes a NaN score
+    assert (tab.score_bar.value(), tab.score_bar.format()) == (0, "—")
+
+
+def test_a_non_finite_sensitivity_is_replaced_by_the_default_and_a_rerecording_heals_it(tmp_path, qapp):
+    tab = gesture_tab(tmp_path, [gesture("peace", sensitivity=float("nan"))])
+    assert tab.sens.value() == 15
+    tab.rerecord_btn.click()
+    tab.on_recorded(dict(HAND))
+    assert Store(tmp_path).load_gestures()[0]["sensitivity"] == 1.5
