@@ -1,1 +1,1 @@
-Taruh file suara (MP3/WAV/OGG/FLAC) di sini untuk mengganti SFX bawaan: activation, charge_loop, blast, power_down (orb), finger_1..finger_4 (gesture jari), atau nama bebas yang dirujuk di finger_sfx pada config.yaml. File media di folder ini tidak ikut di-commit.
+This folder is for the developer's local audio and is not used by the app. Users add sounds from the Jurus editor, which copies them to %APPDATA%\MeetCam\media. Files here are not committed (see .gitignore).

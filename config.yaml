@@ -1,11 +1,14 @@
+# Advanced, technical tuning. Jurus (gesture -> sound -> visual), devices and language are set in the
+# app and kept in %APPDATA%\MeetCam (see README). Keys marked "overridden in Settings" are replaced there.
+
 camera:
-  device_id: 0
+  device_id: 0         # overridden in Settings (Camera)
   width: 1280
   height: 720
   fps: 30
 
 virtual_camera:
-  enabled: true
+  enabled: true          # overridden in Settings (Send to the virtual camera)
   backend: obs           # "OBS Virtual Camera" driver, installed with OBS Studio (OBS itself need not run)
 
 tracking:
@@ -13,7 +16,7 @@ tracking:
   detection_confidence: 0.6
   tracking_confidence: 0.5
   smoothing: 0.35        # EMA alpha: 1.0 = raw (jittery), lower = smoother but laggier
-  max_hands: 2           # 2 for the vanishing seal; the orb and finger SFX follow one hand
+  max_hands: 2           # 2 for the two-hand jurus (seal, wow); the orb and one-hand jurus follow one hand
 
 gesture:
   # openness = mean fingertip→palm-center distance / palm size (wrist→middle MCP)
@@ -31,9 +34,11 @@ gesture:
   thumb_out: 0.1         # above → thumb out (3+ fingers = OPEN_PALM); below → folded (4 fingers = FOUR)
 
 orb:
-  style: video           # video = the clip below, screen-blended; procedural = drawn in code (also the
-                         # fallback when the clip is missing: media files are not in git)
-  video: assets/video/orb.mp4   # black background, orb centered; intro, loop and size are auto-detected
+  # style and video are overridden by the orb jurus: its video file (black background, orb centered; intro,
+  # loop and size are auto-detected) is screen-blended, and with no file, or one that can't be read, the
+  # orb is drawn in code. Everything else below is the orb's look and feel.
+  style: video           # video = a clip, screen-blended; procedural = drawn in code
+  video: assets/video/orb.mp4
   video_scale: 1.0       # size tweak for the video orb
   color_bgr: [255, 115, 20]   # procedural orb / blast: electric blue body; streaks and core glow toward white
   radius: 0.6            # sphere radius in palm lengths (wrist→middle MCP)
@@ -64,14 +69,15 @@ blast:
   cooldown: 1.0          # seconds after a blast before a new orb can spawn
 
 vanish_defaults:
-  # used by the vanish visual of a jurus (smoke clip and room photo are set per jurus)
-  capture_delay: 5       # seconds to leave the frame after pressing B (empty-room photo for the vanish)
+  # used by the vanish visual of a jurus (the smoke clip is set per jurus; the empty-room photo is
+  # %APPDATA%\MeetCam\background.png, taken with the Room photo button / B)
+  capture_delay: 5       # seconds to leave the frame after pressing Room photo (B)
   smoke_height: 1.8      # smoke size relative to the frame height (its densest puff lands on the seal)
 
 audio:
   enabled: true
   host_api: Windows WASAPI   # low latency; "MME" is the slow but always-works fallback
-  output_device: null    # null = Windows default output; or part of a device name, e.g. "USB Audio CODEC"
+  output_device: null    # overridden in Settings (Speaker)
   sample_rate: 48000
   blocksize: 256         # samples per audio callback (~5 ms)
   master_volume: 0.8
@@ -81,14 +87,13 @@ audio:
 meeting_audio:
   # Your mic + the sound effects go to VB-CABLE, so meeting participants hear the SFX.
   # In Meet/Zoom choose the microphone "CABLE Output (VB-Audio Virtual Cable)".
-  # Without VB-CABLE installed the app still runs; only you hear the SFX (MEET AUDIO OFF).
+  # Without VB-CABLE installed the app still runs; only you hear the SFX (Meeting audio: OFF).
+  # The mic and the meeting output are chosen in Settings; the two device keys below are overridden there.
   enabled: true
-  mic_device: USB Audio CODEC   # your real microphone (part of its name): the good mic, via the USB
-                                # mixer (PCM2902). If meetings hear only hiss, check the mixer (gain,
-                                # main mix, +48V) or fall back to "FHD Camera" (webcam mic).
-                                # Don't use null (Windows default): if that is ever set to CABLE Output
-                                # the app would feed its own output back in.
-  output_device: CABLE Input    # VB-CABLE's playback side
+  mic_device: USB Audio CODEC   # overridden in Settings (Microphone). If meetings hear only hiss, check the
+                                # mixer (gain, main mix, +48V) or pick the webcam mic. A default mic that is
+                                # CABLE Output is refused: the app would feed its own output back in.
+  output_device: CABLE Input    # overridden in Settings (Meeting output); VB-CABLE's playback side
   mic_volume: 1.0
   sfx_volume: 0.8               # SFX loudness in the meeting (next to your voice)
   max_latency_ms: 60            # mic buffer cap; older audio is dropped if the two device clocks drift
