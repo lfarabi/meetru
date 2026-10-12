@@ -29,8 +29,8 @@ Buttons: **Add**, **Edit** (or double-click a row), **Delete** (asks first), **T
 The editor has:
 
 - **Name** (must be unique) and **Hand gesture**: a built-in one or one you recorded.
-- **Sound**: none, a built-in beep, or **File...** (mp3, wav, ogg, flac; ▶ plays a preview on your speakers only, not in the meeting). **Play** is *once* (stops early if you let go of the gesture) or *loop* (repeats while the gesture is held). Volume.
-- **Visual**: none, image (png, jpg, gif), video, text (any text or emoji, a colour), orb or vanish (see below). Pictures, videos and text have a **position**, a **size** and a **duration** (*while the gesture is held*, or a number of seconds).
+- **Sound**: *(none)*, one of the built-in sounds (`activation`, `charge_loop`, `blast`, `power_down`, `finger_1` to `finger_4`) or **File...** (mp3, wav, ogg, flac; ▶ plays a preview on your speakers only, not in the meeting). **Play** is *Once* (stops early if you let go of the gesture, unless the jurus is exclusive) or *Repeat while the gesture is held*. Volume.
+- **Visual**: *(none)*, **Picture** (png, jpg, gif), **Video**, **Text** (any text or emoji, a colour), **Energy orb** or **Vanish** (see below). Pictures, videos and text have a **Position**, a **Size** and **Shown for**: *While the gesture is held*, or a number of seconds.
 - **Hold the gesture for**: how long it must be held before the jurus fires (0.3 s by default).
 - **Exclusive**: the sound plays to the end and nothing else fires until the sound and the visual are done. A looping sound can't be exclusive.
 
@@ -38,7 +38,7 @@ A jurus fires once per hold of its gesture and re-arms when you let go. One soun
 
 Files you pick are copied into the data folder (see below), so moving or deleting the original does no harm.
 
-### Gesture tab
+### Gestures tab
 Lists the built-in gestures and the ones you recorded.
 
 | Built-in gesture | How to make it |
@@ -60,11 +60,11 @@ Camera, microphone, speaker (what you hear), meeting output (what the others hea
 ## Visual types and positions
 | Visual | What it does |
 |---|---|
-| image / video / text | drawn at its position, size and duration |
-| orb | the energy orb (Orb): the gesture summons it on your hand. Hold it with the palm turned away from the camera to charge (up to 3 s, the sound rises), then turn the palm to the camera to blast. Changing to any other gesture, or taking the hand out of frame, puts it out. A video file is optional (a clip on a black backdrop, orb in the centre; without one a drawn orb is used), and so are the four orb sounds (appear, charge, blast, power down). |
-| vanish | the seal vanish: the gesture swaps you for the empty-room photo, with a smoke clip (optional) bursting where your hands are; do it again and you come back |
+| Picture / Video / Text | drawn at its position and size, for as long as *Shown for* says |
+| Energy orb | the energy orb (Orb): the gesture summons it on your hand. Hold it with the palm turned away from the camera to charge (up to 3 s, the sound rises), then turn the palm to the camera to blast. Changing to any other gesture, or taking the hand out of frame, puts it out. A video file is optional (a clip on a black backdrop, orb in the centre; without one a drawn orb is used), and so are the four orb sounds (appear, charge, blast, power down). |
+| Vanish | the seal vanish: the gesture swaps you for the empty-room photo, with a smoke clip (optional) bursting where your hands are; do it again and you come back |
 
-Positions: *on the hand* (centred on the palm; size is in palm lengths), *full screen* (the clip's own framing), or one of nine spots on a 3x3 grid. Size is a fraction of the frame height. Positions are **as seen in your mirrored preview**: "left" is the left of your preview, and the meeting sees it on the right so that text and pictures read correctly there too. There can be only one orb and one vanish jurus (the editor greys the option out when it is taken).
+Positions: *on the hand* (centred on the palm; size is in palm lengths), *full screen* (the clip keeps its own framing, so Size has no effect there), or one of nine spots on a 3x3 grid. Size is a fraction of the frame height. Positions are **as seen in your mirrored preview**: "left" is the left of your preview, and the meeting sees it on the right so that text and pictures read correctly there too. There can be only one orb and one vanish jurus (the editor greys the option out when it is taken).
 
 ## Effect videos
 A video used as a visual, as vanish smoke, or as the orb should have a **one-colour backdrop**: green or blue screen, black, white or another solid colour. The backdrop is read from the video's edges and removed automatically (black suits glowing effects; very dark parts of the subject can turn slightly see-through). A video **without** a one-colour backdrop is shown **as it is**, unedited: there is no AI cut-out.
@@ -87,7 +87,7 @@ Files are saved safely (a crash can't leave half a file). A file that can't be r
 
 `config.yaml` stays as the advanced, technical tuning (gesture thresholds, orb look, audio latency). Normal use never needs it; the device, language and jurus choices above are not read from it.
 
-**Media is never committed.** Everything under `assets/` is git-ignored except two README notes, and your own media lives in `%APPDATA%` outside the repo.
+**Media is never committed.** The media folders (`assets/audio`, `assets/video`) and `assets/background.png` are git-ignored, and your own media lives in `%APPDATA%` outside the repo.
 
 ## Use in Meet / Zoom
 Once: install **VB-CABLE** (https://vb-audio.com/Cable/ → download the zip → right-click `VBCABLE_Setup_x64.exe` → Run as administrator → Install Driver → restart). Keep the Windows default output on your speakers or headphones, not "CABLE Input".
