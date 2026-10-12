@@ -24,7 +24,7 @@ On the right are three tabs. Every change in them is saved at once and applies l
 ### Jurus tab
 The list shows each jurus as `name — gesture · sound · visual`. Tick the box to enable or disable one. A **⚠** in front means the jurus can't run (hover it for the reason): its recorded gesture was deleted, or its sound / picture / video file can't be read. It stays in the list and is skipped until you fix or delete it; everything else keeps working.
 
-Buttons: **Add**, **Edit** (or double-click a row), **Delete** (asks first), **Try** (fires the selected jurus now, no gesture needed).
+Buttons: **Add**, **Edit** (or double-click a row), **Delete** (asks first), **Try** (fires the selected jurus now, no gesture needed; not for the orb, which only its gesture summons).
 
 The editor has:
 
