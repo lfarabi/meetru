@@ -94,17 +94,36 @@ def _clean_visual(visual: dict) -> dict:
             "position": position if position in POSITIONS else "center"}
 
 
-def _decode(ref: str, store, sr: int) -> np.ndarray:
+_media: dict = {}   # the sounds and clips the last build decoded, by file (path, mtime) or text and colour
+
+
+def _cached(key: tuple, make, used: dict):
+    """make(), unless the last build already made it: an edit doesn't decode the unchanged media again (that
+    took seconds). `used` collects what this build keeps, so a file no jurus uses any more is let go."""
+    if key not in used:
+        used[key] = _media[key] if key in _media else make()
+    return used[key]
+
+
+def _decode(ref: str, store, sr: int, used: dict) -> np.ndarray:
     path = store.resolve(ref)
     if path is None:
         raise ValueError(f"not a media file: {ref!r}")
-    buf = load_sound(path, sr)
+    buf = _cached(("sound", str(path), path.stat().st_mtime_ns, sr), lambda: load_sound(path, sr), used)
     if not len(buf):
         raise ValueError(f"{ref} has no audio")
     return buf
 
 
-def _sound_key(ref: str, store, sr: int, sounds: dict) -> str:
+def _clip(visual: dict, store, used: dict):
+    """The clip for an image / video / text visual; raises if it cannot be made."""
+    path = store.resolve(visual.get("file") or "")
+    key = (("text", visual.get("text"), visual.get("color")) if visual.get("type") == "text"
+           else (visual.get("type"), str(path), path.stat().st_mtime_ns if path and path.is_file() else None))
+    return _cached(key, lambda: visual_clip(visual, path), used)
+
+
+def _sound_key(ref: str, store, sr: int, sounds: dict, used: dict) -> str:
     """Name of `ref` in the sound set. A built-in is already in the audio engine; a media file is
     decoded into `sounds` once, however many jurus use it."""
     if ref.startswith("builtin:"):
@@ -113,12 +132,14 @@ def _sound_key(ref: str, store, sr: int, sounds: dict) -> str:
             raise ValueError(f"no built-in sound {name!r}")
         return name
     if ref not in sounds:
-        sounds[ref] = _decode(ref, store, sr)
+        sounds[ref] = _decode(ref, store, sr, used)
     return ref
 
 
 def build(jurus_cfg: list[dict], store, templates: list[dict], sr: int) -> tuple[list[Jurus], dict[str, np.ndarray], set[str]]:
     """The jurus, the sound set to hand to the audio engine, and the names of its looping sounds."""
+    global _media
+    used: dict = {}
     by_name = {t["name"]: t for t in valid_templates(templates)}
     sounds: dict[str, np.ndarray] = {}
     loops: set[str] = set()
@@ -142,9 +163,9 @@ def build(jurus_cfg: list[dict], store, templates: list[dict], sr: int) -> tuple
             if j.kind == "orb":  # the engine plays these; they replace the built-in orb sounds
                 for key in ORB_SOUNDS:
                     if ref := (cfg.get("orb_sounds") or {}).get(key):
-                        sounds[key] = _decode(ref, store, sr)
+                        sounds[key] = _decode(ref, store, sr, used)
             elif sound := cfg.get("sound"):
-                j.sound = _sound_key(sound["file"], store, sr, sounds)
+                j.sound = _sound_key(sound["file"], store, sr, sounds, used)
                 if j.looped:
                     loops.add(j.sound)
 
@@ -152,7 +173,7 @@ def build(jurus_cfg: list[dict], store, templates: list[dict], sr: int) -> tuple
             # the engine owns the orb and the vanish smoke (it resolves the smoke file itself)
             if visual and j.kind not in ("orb", "vanish"):
                 clean = _clean_visual(visual)
-                j.overlay = OverlayPlayer(visual_clip(clean, store.resolve(clean.get("file") or "")), clean)
+                j.overlay = OverlayPlayer(_clip(clean, store, used), clean)
 
         for problem, stage in (("gesture", check_gesture), ("sound", load_sounds), ("visual", make_overlay)):
             try:
@@ -162,6 +183,7 @@ def build(jurus_cfg: list[dict], store, templates: list[dict], sr: int) -> tuple
                 log.warning("Jurus %r: %s unusable (%s)", j.name, problem, e)
                 break
         out.append(j)
+    _media = used
     return out, sounds, loops
 
 

@@ -191,6 +191,27 @@ def test_build_returns_sound_keys_loops_and_orb_sounds(store, rig):
     assert rig(J("one", ONE))[1].orb_jurus is None
 
 
+def test_unchanged_media_is_not_decoded_again(dot, store, monkeypatch, qapp):
+    import os
+
+    import rules
+    sf.write(str(store.media / "boom.wav"), np.zeros(4800, np.float32) + 0.1, 48000)
+    decoded = []
+    for name in ("load_sound", "visual_clip"):
+        real = getattr(rules, name)
+        monkeypatch.setattr(rules, name, lambda *a, real=real, name=name: decoded.append(name) or real(*a))
+    cfgs = [J("boom", ONE, sound=snd(file="media/boom.wav")), J("pic", TWO, visual={**IMAGE, "duration": "held"}),
+            J("txt", THREE, visual={"type": "text", "text": "hi", "color": "#ff0000"})]
+    first = build(cfgs, store, [], 48000)
+    assert sorted(decoded) == ["load_sound", "visual_clip", "visual_clip"]
+    second = build(cfgs, store, [], 48000)                                      # an edit elsewhere
+    assert len(decoded) == 3 and second[1]["media/boom.wav"] is first[1]["media/boom.wav"]
+    assert second[0][1].overlay.clip is first[0][1].overlay.clip
+    os.utime(store.media / "boom.wav", ns=(0, 10 ** 18))                        # the file changed
+    build([*cfgs[:2], {**cfgs[2], "visual": {**cfgs[2]["visual"], "text": "ho"}}], store, [], 48000)
+    assert sorted(decoded[3:]) == ["load_sound", "visual_clip"]
+
+
 def test_try_fire_plays_once_and_blocks_like_a_fire(rig):
     a, r = rig(J("four", FOUR, sound=snd(4, "loop", 0.5)), J("x", WOW, exclusive=True, sound=snd(2)),
                J("one", ONE), J("bad", TWO, sound=snd(file="builtin:nope")))

@@ -83,7 +83,7 @@ class _Setup(NamedTuple):
 
 
 class Engine(QThread):
-    frame_ready = Signal(QImage)  # the preview, BGR
+    frame_ready = Signal(QImage)  # the preview, BGR; the next one waits for frame_shown()
     # keys: fps, vcam, meeting, gesture, message (a key, "" for none), message_args, scores, invisible, effects_on, muted
     status = Signal(dict)
     recorded = Signal(object)     # a recorded gesture's template (dict), or "no_hand" / "unsteady"
@@ -101,6 +101,7 @@ class Engine(QThread):
         self._running = True
         self._fps, self._last, self._drops, self._oops_at = 0.0, time.perf_counter(), 0, float("-inf")
         self._lock, self._pending, self._setup = threading.Lock(), None, None
+        self._preview_free = True  # the window has taken the last preview frame
         self._shape, self._vanish_key = None, None
         self._rec = None   # a recording in progress: {"start": time or None, "frames": [hands, ...]}
         self._info = {"gesture": "", "message": "", "message_args": {}, "scores": {}, "invisible": False}
@@ -133,13 +134,22 @@ class Engine(QThread):
         machine = orb = None
         if orb_j:
             video = _visual_file(self.store, orb_j)
-            machine = OrbMachine(self.cfg, trigger=orb_j.gesture)
-            orb = EnergyOrb({**self.cfg, "orb": {**self.cfg["orb"], "style": "video" if video else "procedural",
-                                                 "video": video}})
+            with self._lock:
+                last = self._pending or self._setup
+            if last and last.machine and (last.machine.trigger, last.orb.o["video"]) == (orb_j.gesture, video):
+                machine, orb = last.machine, last.orb   # unchanged: the orb doesn't blink or replay its sound
+            else:
+                machine = OrbMachine(self.cfg, trigger=orb_j.gesture)
+                orb = EnergyOrb({**self.cfg, "orb": {**self.cfg["orb"], "style": "video" if video else "procedural",
+                                                     "video": video}})
         vanish_j = next((j for j in jurus if j.kind == "vanish" and j.problem is None), None)
         smoke = _visual_file(self.store, vanish_j) if vanish_j else None
         with self._lock:
             self._pending = _Setup(rules, orb_j, machine, orb, valid_templates(templates), smoke, sounds, loops)
+
+    def frame_shown(self):
+        """The window has taken the last preview frame: the next one may be sent."""
+        self._preview_free = True
 
     def _send(self, name: str, *args):
         self._cmds.put((name, args))
@@ -211,8 +221,10 @@ class Engine(QThread):
             status = {**self._status(self._fps), "message": "engine_error", "message_args": {}}
         if self.vcam is not None and outgoing.shape[:2] == (self.vcam.height, self.vcam.width):
             self.vcam.send(outgoing)
-        h, w = preview.shape[:2]
-        self.frame_ready.emit(QImage(preview.data, w, h, preview.strides[0], QImage.Format.Format_BGR888).copy())
+        if self._preview_free:  # else the window is busy, and frames queued for it would pile up
+            self._preview_free = False
+            h, w = preview.shape[:2]
+            self.frame_ready.emit(QImage(preview.data, w, h, preview.strides[0], QImage.Format.Format_BGR888).copy())
         self.status.emit(status)
 
     def _close(self):
@@ -377,12 +389,13 @@ class Engine(QThread):
 
     # --- swapping in a reload ------------------------------------------------------------
     def _apply_pending(self):
-        with self._lock:
-            setup, self._pending = self._pending, None
+        with self._lock:  # in one step, so reload() always compares the orb with the newest setup
+            old, setup, self._pending = self._setup, self._pending, None
+            if setup is not None:
+                self._setup = setup
         if setup is not None:
-            if self._setup is not None:
-                self._setup.rules.release_all(time.perf_counter())
-            self._setup = setup
+            if old is not None:
+                old.rules.release_all(time.perf_counter())
             self._attach_audio()
         if self._shape is not None:
             key = (self._setup.smoke, self._shape)

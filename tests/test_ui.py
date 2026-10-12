@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from conftest import M_CFG, make_engine
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QImage
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QDialog
 
@@ -152,6 +152,12 @@ def test_on_status_lights_and_tooltips(window):
     assert window.gesture_label.text() == t("g_WOW") + ", 🖐 peace"
     window.on_status(STATUS)
     assert window.gesture_label.text() == "" and window.invisible_badge.isHidden()
+
+
+def test_a_shown_frame_lets_the_engine_send_the_next(window):
+    window.engine._preview_free = False                         # a frame is on its way
+    window.on_frame(QImage(64, 36, QImage.Format_BGR888))
+    assert window.engine._preview_free
 
 
 def test_buttons_and_shortcuts_drive_the_engine(tmp_path, window):

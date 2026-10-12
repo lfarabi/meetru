@@ -484,8 +484,7 @@ class JurusTab(QWidget):
         layout = QVBoxLayout(self)
         layout.addWidget(self.list, 1)
         layout.addLayout(buttons)
-        # ponytail: this builds what the engine has just built, to learn the problems; read them off the engine
-        # if start-up gets slow
+        # builds again what the engine has just built, to learn the problems: cheap, rules.build reuses the media
         self._show(self._build()[0])
 
     def _build(self):
@@ -500,8 +499,9 @@ class JurusTab(QWidget):
     def apply(self, show: bool = True):
         """Save the list, rebuild the jurus from it and hand them to the engine; then redraw the list."""
         self.store.save_jurus(self.items)
-        # ponytail: media loads in the UI thread on save (a long clip can freeze the window ~1 s); move to a worker
-        # if it bites
+        # ponytail: a newly chosen file (or a new orb video) decodes here, in the UI thread: a few seconds for long
+        # clips (measured: ~2 s to decode a full media set, ~0.9 s for an orb video); unchanged media is reused. Move
+        # to a worker if it bites
         built = self._build()
         self.engine.reload(*built)
         if show:
@@ -912,6 +912,7 @@ class MainWindow(QMainWindow):
         save_setting(self.store, self.engine, "skeleton", on)
 
     def on_frame(self, image):
+        self.engine.frame_shown()
         self.preview.setPixmap(QPixmap.fromImage(image).scaled(
             self.preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
 

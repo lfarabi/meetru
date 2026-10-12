@@ -149,6 +149,22 @@ def test_a_recorded_match_on_the_orbs_own_gesture_does_not_summon_it(tmp_path, q
     assert e._status(0.0)["gesture"] == "rec:peace" and e._setup.machine.state == HIDDEN
 
 
+def test_an_edit_that_leaves_the_orb_alone_keeps_it_as_it_is(tmp_path, qapp):
+    e = orb_engine(tmp_path, "TWO", [Hand(*hand3d(pick(2), False))])
+    run_frames(e, 0.5, time.perf_counter())
+    machine, orb = e._setup.machine, e._setup.orb
+    assert machine.state == ACTIVE
+    jurus = e.store.load_jurus() + [{"name": "Beep", "enabled": True, "gesture": "ONE", "hold": 0.3,
+                                     "exclusive": False, "sound": {"file": "builtin:finger_1", "mode": "once", "volume": 1.0}}]
+    e.reload(*build(jurus, e.store, [], 48000), [])
+    e.step(BLACK(), time.perf_counter())
+    assert e._setup.machine is machine and e._setup.orb is orb and machine.state == ACTIVE   # no blink, no replay
+    jurus[0]["gesture"] = "FIST"
+    e.reload(*build(jurus, e.store, [], 48000), [])
+    e.step(BLACK(), time.perf_counter())
+    assert e._setup.machine is not machine and e._setup.machine.trigger == "FIST"
+
+
 def test_a_one_hand_orb_gives_way_to_a_two_hand_pose(tmp_path, qapp):
     peace = Hand(*hand3d(pick(2), False))
     e = orb_engine(tmp_path, "TWO", [peace])
@@ -200,13 +216,26 @@ def test_one_bad_frame_does_not_stop_the_loop(tmp_path, qapp):
     e = make_engine(Store(tmp_path), {**DEFAULT_SETTINGS, "virtual_camera": False}, tracker=FlakyTracker())
     e.cap = FakeCap()
     frames = []
-    e.frame_ready.connect(frames.append)
+    e.frame_ready.connect(lambda image: frames.append(image) or e.frame_shown())   # as the window does
     e.start()
     wait_for_frames(e, qapp, frames, 8)
     alive = e.isRunning()
     e.stop()
     assert e.wait(10000)
     assert alive and len(frames) >= 8 and e.tracker.calls > 3
+
+
+def test_a_preview_frame_waits_until_the_ui_has_shown_the_last_one(tmp_path, qapp):
+    e = make_engine(Store(tmp_path))
+    e.cap, e.vcam = FakeCap(), FakeVcam()
+    frames = []
+    e.frame_ready.connect(frames.append)
+    for _ in range(3):                    # the UI is busy: one frame waits for it, none pile up
+        e._iterate()
+    assert len(frames) == 1 and len(e.vcam.sent) == 3   # the meeting gets every frame
+    e.frame_shown()
+    e._iterate()
+    assert len(frames) == 2
 
 
 def test_effects_that_fail_still_send_the_plain_camera_and_say_so(tmp_path, qapp):
@@ -310,7 +339,7 @@ def test_run_streams_frames_until_stopped(tmp_path, qapp):
     e = make_engine(Store(tmp_path), {**DEFAULT_SETTINGS, "virtual_camera": False})
     e.cap = cap
     frames, statuses = [], []
-    e.frame_ready.connect(frames.append)
+    e.frame_ready.connect(lambda image: frames.append(image) or e.frame_shown())   # as the window does
     e.status.connect(statuses.append)
     e.start()
     deadline = time.time() + 10
