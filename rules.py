@@ -220,6 +220,13 @@ class Rules:
         if j.overlay:
             j.overlay.release(t)
 
+    def release_all(self, t: float):
+        """Let go of everything held: these jurus are being replaced, and the new ones never fired, so nothing
+        else would stop a held loop."""
+        for j in self.jurus:
+            if j.holding:
+                self._release(j, t)
+
     def update(self, active: set[str], t: float, two_hands: bool, blocked: bool) -> list[Jurus]:
         """Advance one frame; returns the jurus that fired. `blocked`: the orb or a vanish is busy.
         Orb jurus are skipped: the engine drives the orb."""

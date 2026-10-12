@@ -82,6 +82,20 @@ def test_reload_swaps_jurus_between_frames(tmp_path, qapp):
     assert e.vanish is vanish                                          # same smoke: being invisible survives an edit
 
 
+def test_a_reload_lets_go_of_what_the_old_jurus_held(tmp_path, qapp):
+    store = Store(tmp_path)
+    e = make_engine(store, tracker=FakeTracker([Hand(*hand3d(pick(4), False))]))
+    t = time.perf_counter()
+    run_frames(e, 0.6, t)                                   # FOUR held: Beep 4 loops
+    assert e.audio.mixer._loops["finger_4"].target_gain == 1.0
+    jurus = store.load_jurus()
+    jurus[1]["enabled"] = False                             # any edit while the loop plays
+    e.reload(*build(jurus, store, [], 48000), [])
+    e.tracker.hands = []                                    # let go: the new Beep 4 never fires
+    run_frames(e, 1.0, t + 0.6)
+    assert e.audio.mixer._loops["finger_4"].target_gain == 0
+
+
 # --- the orb ----------------------------------------------------------------------
 def orb_engine(tmp_path, gesture, hands, templates=()):
     store = Store(tmp_path)

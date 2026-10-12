@@ -369,6 +369,8 @@ class Engine(QThread):
         with self._lock:
             setup, self._pending = self._pending, None
         if setup is not None:
+            if self._setup is not None:
+                self._setup.rules.release_all(time.perf_counter())
             self._setup = setup
             self._attach_audio()
         if self._shape is not None:
