@@ -78,8 +78,8 @@ def test_release_stops_a_non_exclusive_sound_and_new_jurus_cuts_old(rig):
 def test_exclusive_blocks_others_until_its_sound_ends(rig):
     a, r = rig(J("wow", WOW, exclusive=True, sound=snd(2)), J("one", ONE, sound=snd(1)))
     assert run(r, {WOW}, [0.0, 0.1, 0.2, 0.3])[0].cfg["name"] == "wow"          # fires at 0.3, sound lasts to 1.3
-    assert run(r, {ONE}, [0.4, 0.5, 0.7, 1.0, 1.2]) == []                       # ONE has been held long enough
-    assert [j.cfg["name"] for j in run(r, {ONE}, [1.4])] == ["one"]
+    assert run(r, {ONE}, [0.4, 0.7, 1.0, 1.25, 1.35]) == []                     # blocked to 1.3, then the hold starts over
+    assert [j.cfg["name"] for j in run(r, {ONE}, [1.6])] == ["one"]
     assert a.calls == [("play", "finger_2", 1.0, True), ("play", "finger_1", 1.0, False)]   # never stopped
 
 
@@ -87,7 +87,14 @@ def test_two_hand_grace_blocks_one_hand_jurus_but_not_two_hand(rig):
     a, r = rig(J("one", ONE), J("wow", WOW, sound=snd(2)))
     both = {ONE, WOW}
     assert [j.cfg["name"] for j in run(r, both, [0.0, 0.2, 0.4], two_hands=True)] == ["wow"]
-    assert [j.cfg["name"] for j in run(r, both, [0.5])] == ["one"]               # fires once the grace is over
+    assert [j.cfg["name"] for j in run(r, both, [0.5, 0.8])] == ["one"]          # a full hold after the grace
+
+
+def test_a_hold_starts_again_once_a_block_ends(rig):
+    a, r = rig(J("two", TWO))                                                    # hold 0.3
+    assert run(r, {TWO}, [0.0, 0.5, 1.0], two_hands=True) == []                  # half of a seal, in the grace
+    assert run(r, {TWO}, [1.1, 1.2]) == []                                       # not at once when the grace ends
+    assert [j.cfg["name"] for j in run(r, {TWO}, [1.35])] == ["two"]             # but a full hold after it
 
 
 def test_blocked_stops_an_already_firing_sound(rig):
@@ -193,8 +200,8 @@ def test_try_fire_plays_once_and_blocks_like_a_fire(rig):
     assert a.calls == [("play", "finger_4", 0.5, False)]                         # played, not looped
     assert r.try_fire("x", 1.0).cfg["name"] == "x"
     assert r.update(set(), 1.1, False, False) == [] and ("stop", "finger_2") not in a.calls
-    assert run(r, {ONE}, [1.2, 1.5, 1.9]) == []                                  # blocked until x's sound ends at 2.0
-    assert [j.cfg["name"] for j in run(r, {ONE}, [2.1])] == ["one"]
+    assert run(r, {ONE}, [1.2, 1.5, 1.95, 2.1]) == []                            # blocked until x's sound ends at 2.0
+    assert [j.cfg["name"] for j in run(r, {ONE}, [2.3])] == ["one"]               # then a full hold
 
 
 IMAGE = {"type": "image", "file": "media/dot.png", "position": "center", "size": 0.5}
@@ -234,8 +241,8 @@ def test_visual_is_drawn_while_held_and_fades_after_release(dot, rig):
 def test_exclusive_waits_for_its_visual_as_well(dot, rig):
     a, r = rig(J("big", TWO, exclusive=True, sound=None, visual={**IMAGE, "duration": 2.0}), J("one", ONE))
     assert [j.cfg["name"] for j in run(r, {TWO}, [0.0, 0.3])] == ["big"]
-    assert run(r, {ONE}, [0.5, 1.0, 2.0, 2.2]) == []                             # the picture is up until 2.3
-    assert [j.cfg["name"] for j in run(r, {ONE}, [2.4])] == ["one"]
+    assert run(r, {ONE}, [0.5, 1.0, 2.0, 2.25, 2.4]) == []                       # the picture is up until 2.3
+    assert [j.cfg["name"] for j in run(r, {ONE}, [2.6])] == ["one"]               # then a full hold
 
 
 def test_a_hand_edited_file_cannot_crash_the_build_or_a_frame(dot, store, rig):

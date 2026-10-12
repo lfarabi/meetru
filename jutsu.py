@@ -198,7 +198,9 @@ class HoldTrigger:
     """Fires once when a pose has been held `hold` seconds; re-arms only after the pose is let go.
 
     Gaps shorter than `gap` don't count as letting go: with crossed or touching hands the tracker
-    often loses one hand for a few frames, which shouldn't restart the hold."""
+    often loses one hand for a few frames, which shouldn't restart the hold. While not `allowed`
+    the hold starts over, so a pose held through a block (e.g. a finger count that is half of a
+    seal) needs a full hold after it."""
 
     def __init__(self, hold: float, gap: float = 0.0):
         self.hold, self.gap = hold, gap
@@ -210,7 +212,7 @@ class HoldTrigger:
                 self._since, self._armed = None, True
             return False
         self._seen = t
-        self._since = t if self._since is None else self._since
+        self._since = t if self._since is None or not allowed else self._since
         if self._armed and allowed and t - self._since >= self.hold:
             self._armed = False
             return True
