@@ -1,6 +1,6 @@
 """Image, video and text visuals for a jurus: loaders that turn each into a `jutsu.Clip`, where to
 put it on the frame, and a player that fades it in and out. Positions are named as seen in the
-mirrored preview; the output frame (what the meeting sees) is unmirrored."""
+preview, which is usually mirrored; the output frame (what the meeting sees) is unmirrored."""
 from pathlib import Path
 
 import numpy as np
@@ -82,23 +82,25 @@ def visual_clip(visual: dict, path: Path | None) -> Clip:
 
 
 def place(clip: Clip, position: str, size: float, frame_w: int, frame_h: int,
-          palm: tuple[float, float, float] | None, preview: bool) -> tuple[int, int, float] | None:
-    """Where to draw `clip`: (x0, y0, scale), for the mirrored preview or the unmirrored output.
+          palm: tuple[float, float, float] | None, preview: bool,
+          mirrored: bool = True) -> tuple[int, int, float] | None:
+    """Where to draw `clip`: (x0, y0, scale), for the preview (`mirrored` or not) or the unmirrored output.
 
     `size` is a fraction of frame height (of palm length for "hand"; ignored for "full").
     `palm` is (x, y, palm_size) in output pixels; "hand" without one gives None. An unknown
     position is "center"."""
+    flipped = preview and mirrored   # this frame is the mirror image of the output
     ch, cw = clip.frames[0][0].shape[:2]
     if position == "full":  # the clip's own framing, stretched to the frame width
         scale = frame_w / clip.source_width
         w = max(1, int(cw * scale))
-        x0, y0, flip = int(clip.origin[0] * scale), int(clip.origin[1] * scale), preview
+        x0, y0, flip = int(clip.origin[0] * scale), int(clip.origin[1] * scale), flipped
     elif position == "hand":
         if palm is None:
             return None
         scale = size * palm[2] / ch
         w, h = max(1, int(cw * scale)), max(1, int(ch * scale))
-        x0, y0, flip = round(palm[0] - w / 2), round(palm[1] - h / 2), preview
+        x0, y0, flip = round(palm[0] - w / 2), round(palm[1] - h / 2), flipped
     else:  # 3x3 grid, worked out as seen in the preview
         scale = size * frame_h / ch
         w, h = max(1, int(cw * scale)), max(1, int(ch * scale))
@@ -108,7 +110,7 @@ def place(clip: Clip, position: str, size: float, frame_w: int, frame_h: int,
         row = 0 if "top" in parts else 2 if "bottom" in parts else 1
         x0 = (m, (frame_w - w) // 2, frame_w - m - w)[col]
         y0 = (m, (frame_h - h) // 2, frame_h - m - h)[row]
-        flip = not preview
+        flip = mirrored and not preview   # the output, when it is the mirror image of the preview
     return (frame_w - x0 - w if flip else x0), y0, scale
 
 
@@ -139,11 +141,13 @@ class OverlayPlayer:
                           or (self._released is not None and t - self._released >= RELEASE_FADE)):
             self._start = None
 
-    def draw(self, frame: np.ndarray, t: float, palm: tuple[float, float, float] | None, preview: bool):
+    def draw(self, frame: np.ndarray, t: float, palm: tuple[float, float, float] | None, preview: bool,
+             mirrored: bool = True):
         if not self.busy:
             return
         v = self.visual
-        at = place(self.clip, v.get("position", "center"), v.get("size", 0.4), frame.shape[1], frame.shape[0], palm, preview)
+        at = place(self.clip, v.get("position", "center"), v.get("size", 0.4), frame.shape[1], frame.shape[0], palm,
+                   preview, mirrored)
         if at is None:
             return
         i = int((t - self._start) * self.clip.fps) % len(self.clip.frames)

@@ -77,7 +77,8 @@ class SettingsTab(QWidget):
         self.vcam, self.mirror = QCheckBox(t("set_vcam")), QCheckBox(t("set_mirror"))
         self.language_note = QLabel("", wordWrap=True)
         combos = {"camera_index": (self.camera, [(c, i) for i, c in enumerate(cameras)]),
-                  "mic": (self.mic, default + [(n, n) for n in inputs]),
+                  # the engine refuses the cable as a mic: it would hear itself
+                  "mic": (self.mic, default + [(n, n) for n in inputs if "CABLE" not in n]),
                   "speaker": (self.speaker, default + [(n, n) for n in outputs]),
                   "meeting_output": (self.meeting, [(n, n) for n in outputs]),
                   "language": (self.language, [(t("lang_auto"), None), ("Bahasa Indonesia", "id"), ("English", "en")])}
@@ -531,9 +532,13 @@ class JurusTab(QWidget):
         self._sync_buttons()
 
     def _sync_buttons(self):
-        """Edit, Delete and Try need a selected jurus."""
-        for button in (self.edit_btn, self.delete_btn, self.try_btn):
-            button.setEnabled(self.list.currentRow() >= 0)
+        """Edit, Delete and Try need a selected jurus; Try can't summon the orb, only its gesture can."""
+        row = self.list.currentRow()
+        orb = row >= 0 and _dict(self.items[row].get("visual")).get("type") == "orb"
+        for button in (self.edit_btn, self.delete_btn):
+            button.setEnabled(row >= 0)
+        self.try_btn.setEnabled(row >= 0 and not orb)
+        self.try_btn.setToolTip(t("try_orb") if orb else "")
 
     def _toggled(self, item):
         cfg, on = self.items[self.list.row(item)], item.checkState() == Qt.Checked
@@ -917,8 +922,8 @@ class MainWindow(QMainWindow):
                           + t(key, state=t("state_on" if on else "state_off")))
             light.setToolTip("" if on else t(tip))
         self.fps_label.setText(t("light_fps", fps=f"{st.get('fps', 0):.0f}"))
-        gesture = st.get("gesture", "")
-        self.gesture_label.setText("" if gesture == "NO_HAND" else gesture)
+        ids = [g for g in str(st.get("gesture", "")).split(", ") if g and g != "NO_HAND"]   # the engine's ", " list
+        self.gesture_label.setText(", ".join(map(gesture_label, ids)))
         key = st.get("message", "")
         self.message.setText(t(key, **st.get("message_args", {})) if key else "")
         self.invisible_badge.setVisible(bool(st.get("invisible")))

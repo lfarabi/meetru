@@ -63,6 +63,17 @@ def test_text_overlay_reads_the_same_in_preview_and_output(tmp_path, qapp):
     assert np.array_equal(in_preview, in_output)  # but the letters themselves are not flipped in either
 
 
+def test_with_mirroring_off_a_grid_position_is_where_the_preview_shows_it(tmp_path, qapp):
+    store = Store(tmp_path)
+    store.save_jurus([{"name": "WOW", "enabled": True, "gesture": "WOW", "hold": 0.3, "exclusive": False,
+                       "visual": {"type": "text", "text": "WOW!", "color": "#ffd400", "position": "top_left",
+                                  "size": 0.25, "duration": 2.0}}])
+    e = make_engine(store, {**DEFAULT_SETTINGS, "mirror_preview": False})
+    e._do_try_jurus("WOW")
+    out, prev = e.step(BLACK(), time.perf_counter())
+    assert np.nonzero(prev.any(axis=2))[1].min() < 30 and np.array_equal(out, prev)   # top left, and the same as sent
+
+
 def test_reload_swaps_jurus_between_frames(tmp_path, qapp):
     store = Store(tmp_path)
     t = np.arange(4800) / 48000
@@ -334,6 +345,18 @@ def test_recording_a_held_pose_counts_down_then_emits_a_template(tmp_path, qapp)
     assert len(got) == 1 and got[0]["hands"] == 1 and got[0]["name"] == ""
     assert messages[0] == "record_countdown" and "recording" in messages and messages[-1] == ""
     assert e._status(0.0)["message_args"] == {}
+
+
+def test_nothing_fires_while_a_gesture_is_recorded(tmp_path, qapp):
+    e = make_engine(Store(tmp_path), tracker=FakeTracker([Hand(*hand3d(pick(1), False))]))   # ONE: Beep 1
+    e.cap = FakeCap()
+    e._do_record()
+    t = time.perf_counter()
+    run_frames(e, 2.0, t)
+    e.tracker.hands = [Hand(*hand3d(pick(4), True))]                                         # the orb's open palm
+    run_frames(e, 2.0, t + 2.0)
+    assert e._rec is not None and e._status(0.0)["gesture"] == "OPEN_PALM"                   # still recording
+    assert all(j.fired_at is None for j in e._setup.rules.jurus) and e._setup.machine.state == HIDDEN
 
 
 def test_recording_with_no_hand_reports_no_hand(tmp_path, qapp):

@@ -146,8 +146,10 @@ def test_on_status_lights_and_tooltips(window):
     assert "OFF" in window.vcam_light.text() and "OBS" in window.vcam_light.toolTip()
     assert window.meeting_light.toolTip() == ""
     assert "25" in window.fps_label.text()
-    assert window.gesture_label.text() == "OPEN_PALM"
+    assert window.gesture_label.text() == t("g_OPEN_PALM")
     assert not window.invisible_badge.isHidden()
+    window.on_status({**STATUS, "gesture": "WOW, rec:peace"})
+    assert window.gesture_label.text() == t("g_WOW") + ", 🖐 peace"
     window.on_status(STATUS)
     assert window.gesture_label.text() == "" and window.invisible_badge.isHidden()
 
@@ -191,6 +193,13 @@ def test_a_saved_part_of_a_device_name_selects_the_whole_device(tmp_path, monkey
     tab = settings_tab(tmp_path)  # the default meeting_output is "CABLE Input"
     assert (tab.meeting.currentText(), tab.meeting.currentData()) == (CABLE, CABLE)
     assert not (tmp_path / "settings.yaml").exists()  # showing it is not saving it
+
+
+def test_the_cable_is_not_offered_as_a_microphone(tmp_path, monkeypatch, qapp):
+    fake_audio(monkeypatch, {"input": ["Mic", "CABLE Output (VB-Audio Virtual Cable)"], "output": ["Speakers", CABLE]})
+    tab = settings_tab(tmp_path)                       # the engine refuses it: it would hear itself
+    assert texts(tab.mic) == [t("device_default"), "Mic"]
+    assert CABLE in texts(tab.speaker) and CABLE in texts(tab.meeting)
 
 
 def test_no_saved_meeting_output_selects_the_first_cable_input(tmp_path, monkeypatch, qapp):
@@ -389,7 +398,14 @@ def test_delete_asks_first_in_the_current_language(tmp_path, monkeypatch, qapp):
 def test_a_fresh_tab_has_the_first_jurus_selected(tmp_path, qapp):
     tab = jurus_tab(tmp_path)
     assert tab.list.currentRow() == 0
-    assert all(b.isEnabled() for b in (tab.add_btn, tab.edit_btn, tab.delete_btn, tab.try_btn))
+    assert all(b.isEnabled() for b in (tab.add_btn, tab.edit_btn, tab.delete_btn))
+
+
+def test_try_is_off_for_the_orb_which_only_its_gesture_summons(tmp_path, qapp):
+    tab = jurus_tab(tmp_path)                                   # row 0 is the Orb orb
+    assert not tab.try_btn.isEnabled() and tab.try_btn.toolTip() == t("try_orb")
+    tab.list.setCurrentRow(1)
+    assert tab.try_btn.isEnabled() and tab.try_btn.toolTip() == ""
 
 
 def test_edit_delete_and_try_need_a_selected_jurus(tmp_path, monkeypatch, qapp):

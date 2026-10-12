@@ -265,7 +265,9 @@ class Engine(QThread):
 
         vanish.capture_tick(frame, t)  # raw camera frame, before any effect
         if self.effects_on:
-            for j in s.rules.update(active, t, two_hands, bool(s.machine and s.machine.busy(t)) or vanish.busy):
+            # the pose being recorded must not fire into the meeting
+            busy = bool(s.machine and s.machine.busy(t)) or vanish.busy or self._rec is not None
+            for j in s.rules.update(active, t, two_hands, busy):
                 if j.kind == "vanish":
                     self._fire_vanish(hands, t)
             vanish.update(t)
@@ -319,7 +321,7 @@ class Engine(QThread):
         j = s.orb_jurus
         # a recorded match outranks the built-in gesture it replaced; any other raw gesture still goes in, as the
         # FOUR tolerance and the silent fade need it
-        orb_in = (NO_HAND if self.vanish.busy or (two_hands and j.hands == 1)
+        orb_in = (NO_HAND if self.vanish.busy or self._rec is not None or (two_hands and j.hands == 1)
                   else j.gesture if j.gesture in active else NO_HAND if gesture == j.gesture else gesture)
         state = s.machine.update(orb_in, -float(self._normal[2]) if lm is not None else None, t)  # palm-to-camera
         if lm is None:
@@ -330,7 +332,7 @@ class Engine(QThread):
 
     def _render(self, frame, lm, t: float) -> np.ndarray:
         """Draw the overlays into `frame` (for the meeting) and return the preview. They go on after the
-        mirroring, so text reads the right way round in both."""
+        mirroring, so text reads the right way round in both; positions are as seen in the preview."""
         rules, mirrored = self._setup.rules, self.settings["mirror_preview"]
         palm = None if lm is None else (*(float(x) for x in palm_center(lm)[:2]), palm_size(lm))
         preview = frame.copy()
@@ -338,8 +340,8 @@ class Engine(QThread):
             draw_skeleton(preview, lm)
         if mirrored:
             preview = cv2.flip(preview, 1)
-        rules.draw(frame, t, palm, False)
-        rules.draw(preview, t, palm, mirrored)
+        rules.draw(frame, t, palm, False, mirrored)
+        rules.draw(preview, t, palm, True, mirrored)
         return preview
 
     def _fire_vanish(self, hands, t: float):

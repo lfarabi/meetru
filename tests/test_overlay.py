@@ -17,6 +17,8 @@ def test_grid_positions_are_as_seen_in_the_preview():
     c = solid(100, 100)                                     # size 0.25 of a 400-high frame → scale 1.0
     assert place(c, "top_left", 0.25, 800, 400, None, preview=True)[:2] == (16, 16)
     assert place(c, "top_left", 0.25, 800, 400, None, preview=False)[:2] == (800 - 16 - 100, 16)
+    for preview in (True, False):                           # an unmirrored preview is the output: no flip in either
+        assert place(c, "top_left", 0.25, 800, 400, None, preview, mirrored=False)[:2] == (16, 16)
     assert place(c, "bottom_right", 0.25, 800, 400, None, preview=True)[:2] == (800 - 16 - 100, 400 - 16 - 100)
     assert place(c, "center", 0.25, 800, 400, None, preview=True)[:2] == (350, 150)
     assert place(c, "no_such_spot", 0.25, 800, 400, None, preview=True)[:2] == (350, 150)   # hand-edited file

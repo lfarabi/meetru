@@ -273,7 +273,8 @@ class Rules:
             j.overlay.start(t, TRY_SECONDS if held else None)
         return j
 
-    def draw(self, frame: np.ndarray, t: float, palm: tuple[float, float, float] | None, preview: bool):
+    def draw(self, frame: np.ndarray, t: float, palm: tuple[float, float, float] | None, preview: bool,
+             mirrored: bool = True):
         for j in self.jurus:
             if j.overlay:
-                j.overlay.draw(frame, t, palm, preview)
+                j.overlay.draw(frame, t, palm, preview, mirrored)
