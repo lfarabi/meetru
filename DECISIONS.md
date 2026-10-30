@@ -50,7 +50,7 @@ Hasil sesi grilling 2026-09-25 atas `hand-vfx-camera-project-handoff.md`. Jika b
 - Threshold gesture di-tuning dari pengukuran user: fist ≈ 0.32, open ≈ 1.10 → `fist_below 0.55`.
 
 ## Struktur kode
-Ramping: `main.py`, `tracking.py`, `gestures.py`, `orb.py`, `audio.py`, `config.yaml`, `tests/`. Pecah file hanya saat efek kedua muncul. Repo: github.com/lfarabi/meetcam (private, GPL-3.0), branch `main`.
+Ramping: `main.py`, `tracking.py`, `gestures.py`, `orb.py`, `audio.py`, `config.yaml`, `tests/`. Pecah file hanya saat efek kedua muncul. Repo: github.com/lfarabi/meetru (GPL-3.0-or-later), branch `main`.
 
 ## Checkpoint (user menguji dengan tangan sendiri)
 1. Preview + skeleton + label gesture + FPS.
