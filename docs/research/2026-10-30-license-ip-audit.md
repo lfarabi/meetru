@@ -1,5 +1,7 @@
 Research notes, not legal advice.
 
+> **Update 2026-10-30:** after this audit the project was renamed from MeetCam to **Meetru** and licensed GPL-3.0-or-later; see the follow-up section at the end. The text below keeps the name it was written under.
+
 # MeetCam: license and IP audit
 
 Date: 2026-10-30. Everything fetched from the web was fetched on this date.
@@ -262,3 +264,12 @@ No conclusion is drawn. Both existing uses are in the same broad space (cameras 
 - FFmpeg license in a DLL: extract printable strings and look for the "license:" and configure lines (`SP/PySide6/avutil-61.dll`, `SP/cv2/opencv_videoio_ffmpeg500_64.dll`).
 - Telemetry probe: run a `HandLandmarker` on blank frames from the venv, poll `Get-NetTCPConnection -OwningProcess <real python PID>` (the venv's `python.exe` is a launcher; use its child process), and print wall-clock markers around `close()`.
 - Law texts: `peraturan.bpk.go.id` PDFs linked in section 7.3 converted with `pdftotext`.
+---
+
+## Follow-up decisions (2026-10-30, after this audit)
+
+- **Name.** Renamed to **Meetru** ("Meeting Seru"). A web search and a GitHub search found no product, company or repository named exactly "Meetru" (near names exist: Meetruly, MeetRun, MeetRunning, MeetrumRecorder). Not a trademark clearance: USPTO, EUIPO, WIPO and DJKI were not queried.
+- **License.** GPL-3.0-or-later (SPDX header and copyright line in every `.py` file; checked by `tests/test_license_headers.py`).
+- **In-app notices.** `legal.py`: a notice before the first start about MediaPipe's usage metrics (Continue or Quit; Quit means the camera never starts) and an About box (F1) with the GPL notices, the license text, the libraries and the trademark lines (item 3 and the GPLv3 5(d) point above).
+- **Contributions.** DCO sign-off (`CONTRIBUTING.md`, `DCO`).
+- **Still open.** pyvirtualcam (GPL-2.0-only) before any installer; the official trademark searches; the git history and old pull requests still hold the old names (titles and bodies were neutralized; the history is to be rewritten into a new repository before the repo goes public, because commits stay reachable through `refs/pull/*`).

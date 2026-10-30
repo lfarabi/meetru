@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 lfarabi
 """Energy Orb (a looping video clip, or procedural, drawn in code) and blast, drawn onto the output frame."""
 import logging
 import math

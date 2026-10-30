@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 lfarabi
 """Image, video and text visuals for a jurus: loaders that turn each into a `jutsu.Clip`, where to
 put it on the frame, and a player that fades it in and out. Positions are named as seen in the
 preview, which is usually mirrored; the output frame (what the meeting sees) is unmirrored."""

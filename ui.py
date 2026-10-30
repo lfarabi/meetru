@@ -1,4 +1,6 @@
-"""The MeetCam window: live preview, status lights, the main buttons, the Jurus tab (with its editor), the Gesture
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 lfarabi
+"""The Meetru window: live preview, status lights, the main buttons, the Jurus tab (with its editor), the Gesture
 tab and the Settings tab."""
 import logging
 from pathlib import Path
@@ -15,8 +17,10 @@ import audio
 from engine import Engine
 from gestures import BUILTIN_GESTURES
 from i18n import t
+from legal import AboutDialog
 from overlay import POSITIONS
 from rules import ORB_SOUNDS, _number, build, valid_templates
+from store import APP_NAME
 
 log = logging.getLogger(__name__)
 
@@ -133,14 +137,14 @@ def pick_file(parent, store, kind: tuple[str, str]) -> str | None:
     try:
         return store.import_media(path)
     except OSError as e:
-        QMessageBox.warning(parent, "MeetCam", t("err_import", error=e))
+        QMessageBox.warning(parent, APP_NAME, t("err_import", error=e))
         return None
 
 
 def _confirm_delete(parent, text: str) -> bool:
     """Ask whether to delete; Enter means no."""
     # not QMessageBox.question: its Yes/No buttons would be in English whatever the language
-    box = QMessageBox(QMessageBox.Question, "MeetCam", text, parent=parent)
+    box = QMessageBox(QMessageBox.Question, APP_NAME, text, parent=parent)
     delete = box.addButton(t("btn_delete"), QMessageBox.AcceptRole)
     box.setDefaultButton(box.addButton(t("btn_cancel"), QMessageBox.RejectRole))
     box.exec()
@@ -451,7 +455,7 @@ class JurusEditor(QDialog):
 
     def accept(self):
         if problem := self._problem():
-            QMessageBox.warning(self, "MeetCam", problem)   # the dialog stays open
+            QMessageBox.warning(self, APP_NAME, problem)   # the dialog stays open
         else:
             super().accept()
 
@@ -653,7 +657,7 @@ class GestureTab(QWidget):
         return item.data(Qt.UserRole) if item else None
 
     def _warn_save(self, error: OSError):
-        QMessageBox.warning(self, "MeetCam", t("err_gest_save", error=error))
+        QMessageBox.warning(self, APP_NAME, t("err_gest_save", error=error))
 
     def _write(self, items: list | None = None) -> bool:
         """Save the recordings (any pending slider change with them), or `items`, which are then the recordings. If
@@ -755,7 +759,7 @@ class GestureTab(QWidget):
         problem = (t("err_gest_empty") if not name else t("err_gest_colon") if ":" in name   # "rec:" + name
                    else t("err_gest_taken", name=name) if name != current and self._find(name) else None)
         if problem:
-            QMessageBox.warning(self, "MeetCam", problem)
+            QMessageBox.warning(self, APP_NAME, problem)
             return None
         return name
 
@@ -824,7 +828,7 @@ class MainWindow(QMainWindow):
     def __init__(self, store, cfg: dict, engine: Engine | None = None):
         """With no `engine`, makes one and starts it; one passed in is used as it is (tests give an unstarted one)."""
         super().__init__()
-        self.setWindowTitle("MeetCam")
+        self.setWindowTitle(APP_NAME)
         self.store = store
         settings = store.load_settings()
         start = engine is None
@@ -842,6 +846,11 @@ class MainWindow(QMainWindow):
         self.invisible_badge = QLabel(t("badge_invisible"))
         self.invisible_badge.setStyleSheet("background: #6c3fc5; color: white; padding: 1px 8px; border-radius: 8px")
         self.invisible_badge.hide()
+        self.about = QPushButton(t("btn_about"))
+        self.about.setFlat(True)
+        self.about.setFocusPolicy(Qt.NoFocus)
+        self.about.clicked.connect(self.show_about)
+        QShortcut(QKeySequence("F1"), self, activated=self.about.click)
         for light in (self.vcam_light, self.meeting_light):
             light.setTextFormat(Qt.RichText)
 
@@ -855,6 +864,7 @@ class MainWindow(QMainWindow):
         info.addWidget(self.gesture_label)
         info.addStretch()
         info.addWidget(self.invisible_badge)
+        info.addWidget(self.about)
 
         self.effects = self._button("btn_effects", "Space", lambda on: setattr(self.engine, "effects_on", on), True)
         self.mute = self._button("btn_mute", "M", lambda on: setattr(self.engine, "muted", on))
@@ -929,11 +939,16 @@ class MainWindow(QMainWindow):
         self.message.setText(t(key, **st.get("message_args", {})) if key else "")
         self.invisible_badge.setVisible(bool(st.get("invisible")))
 
+    def show_about(self):
+        dialog = AboutDialog(self)
+        dialog.exec()
+        dialog.deleteLater()
+
     def problems_text(self) -> str:
         return t("problems_text", files=", ".join(self.store.problems))
 
     def _report_problems(self):
-        box = QMessageBox(QMessageBox.Warning, "MeetCam", self.problems_text(), parent=self)
+        box = QMessageBox(QMessageBox.Warning, APP_NAME, self.problems_text(), parent=self)
         box.setWindowModality(Qt.NonModal)  # the window stays usable
         box.setAttribute(Qt.WA_DeleteOnClose)
         box.show()

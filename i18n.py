@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 lfarabi
 """The window's texts in Indonesian and English. `t(key)` gives the text in the current language; the language
 is chosen once at start (`set_language`), not switched live."""
 from PySide6.QtCore import QLocale
@@ -116,8 +118,8 @@ STRINGS = {
         "light_vcam": "Kamera virtual: {state}",
         "light_meeting": "Suara meeting: {state}",
         "light_fps": "{fps} FPS",
-        "tip_vcam_off": "Pasang OBS Studio (di dalamnya ada 'OBS Virtual Camera'), lalu jalankan ulang MeetCam",
-        "tip_meeting_off": "Pasang VB-CABLE, jalankan ulang MeetCam, lalu pilih 'CABLE Output' "
+        "tip_vcam_off": "Pasang OBS Studio (di dalamnya ada 'OBS Virtual Camera'), lalu jalankan ulang Meetru",
+        "tip_meeting_off": "Pasang VB-CABLE, jalankan ulang Meetru, lalu pilih 'CABLE Output' "
                            "sebagai mikrofon di Meet/Zoom",
         "badge_invisible": "Tak terlihat",
         "set_camera": "Kamera",
@@ -130,7 +132,38 @@ STRINGS = {
         "device_default": "(bawaan)",
         "camera_n": "Kamera {n}",
         "lang_auto": "Otomatis",
-        "restart_for_language": "Jalankan ulang MeetCam supaya bahasanya berganti.",
+        "restart_for_language": "Jalankan ulang Meetru supaya bahasanya berganti.",
+        "btn_about": "Tentang (F1)",
+        "about_title": "Tentang {name}",
+        "about_html": (
+            "<h3>{name}</h3>"
+            "<p><i>Meeting Seru</i>: gerakan tangan Anda menjadi suara dan efek visual di panggilan video.</p>"
+            "<p>Hak cipta &copy; {year} {owner}</p>"
+            "<p>Program ini <b>TIDAK DISERTAI JAMINAN APA PUN</b>. Ini perangkat lunak bebas; Anda boleh "
+            "membagikannya kembali sesuai ketentuan GNU General Public License versi 3 atau (sesuai pilihan Anda) "
+            "versi yang lebih baru. Tekan <i>Teks lisensi</i> untuk membacanya, atau lihat "
+            "<a href=\"{gpl}\">{gpl}</a>.</p>"
+            "<p><b>Privasi.</b> Gambar kamera dan suara Anda diproses di komputer ini dan tidak diunggah. MediaPipe "
+            "milik Google, yang melacak tangan Anda, mengirim data ukuran kinerja dan penggunaan fungsinya ke "
+            "Google (<a href=\"{privacy}\">pemberitahuan Google</a>).</p>"
+            "<p><b>Dibuat dengan</b> MediaPipe dan model tangannya (Apache-2.0), OpenCV (Apache-2.0), Qt lewat "
+            "PySide6 (LGPL-3.0), NumPy (BSD-3-Clause), Pillow (MIT-CMU), sounddevice (MIT), soundfile "
+            "(BSD-3-Clause), PyYAML (MIT) dan pyvirtualcam (GPL-2.0). Masing-masing tetap berlisensi sendiri; "
+            "daftar lengkap dengan tautan ada di file README.</p>"
+            "<p>Google Meet, Zoom, dan Windows adalah merek dagang pemiliknya. {name} tidak berafiliasi dengan "
+            "atau didukung oleh mereka.</p>"),
+        "btn_license": "Teks lisensi",
+        "btn_close": "Tutup",
+        "license_missing": "Teks lisensi lengkap ada di <a href=\"{url}\">{url}</a>.",
+        "privacy_text": (
+            "<p><b>Sebelum mulai</b></p>"
+            "<p>{name} melacak tangan Anda dengan pustaka MediaPipe dari Google. Gambar kamera Anda diproses di "
+            "komputer ini dan tidak diunggah.</p>"
+            "<p>Google menyatakan MediaPipe juga mengirim data ukuran kinerja dan penggunaan fungsinya ke Google "
+            "(<a href=\"{url}\">pemberitahuan privasi Google</a>). Google tidak mendokumentasikan cara "
+            "mematikannya. Dengan melanjutkan, Anda menyetujui hal ini.</p>"),
+        "privacy_continue": "Lanjutkan",
+        "privacy_quit": "Keluar",
         "camera_failed": "Kamera tidak bisa dipakai. Tutup aplikasi lain yang memakainya (misalnya NVIDIA "
                          "Broadcast), lalu pilih kamera lagi di Pengaturan.",
         "tracker_failed": "Model tangan tidak ditemukan (models/hand_landmarker.task). "
@@ -257,8 +290,8 @@ STRINGS = {
         "light_vcam": "Virtual camera: {state}",
         "light_meeting": "Meeting audio: {state}",
         "light_fps": "{fps} FPS",
-        "tip_vcam_off": "Install OBS Studio (it adds 'OBS Virtual Camera'), then restart MeetCam",
-        "tip_meeting_off": "Install VB-CABLE, restart MeetCam, then choose 'CABLE Output' "
+        "tip_vcam_off": "Install OBS Studio (it adds 'OBS Virtual Camera'), then restart Meetru",
+        "tip_meeting_off": "Install VB-CABLE, restart Meetru, then choose 'CABLE Output' "
                            "as the microphone in Meet/Zoom",
         "badge_invisible": "Invisible",
         "set_camera": "Camera",
@@ -271,7 +304,37 @@ STRINGS = {
         "device_default": "(default)",
         "camera_n": "Camera {n}",
         "lang_auto": "Auto",
-        "restart_for_language": "Restart MeetCam to change the language.",
+        "restart_for_language": "Restart Meetru to change the language.",
+        "btn_about": "About (F1)",
+        "about_title": "About {name}",
+        "about_html": (
+            "<h3>{name}</h3>"
+            "<p><i>Meeting Seru</i>: your hand gestures become sounds and visual effects in your video calls.</p>"
+            "<p>Copyright &copy; {year} {owner}</p>"
+            "<p>This program comes with <b>ABSOLUTELY NO WARRANTY</b>. It is free software, and you are welcome to "
+            "redistribute it under the terms of the GNU General Public License, version 3 or (at your option) any "
+            "later version. Press <i>License text</i> to read it, or see <a href=\"{gpl}\">{gpl}</a>.</p>"
+            "<p><b>Privacy.</b> Your camera picture and voice are processed on this computer and are not uploaded. "
+            "Google's MediaPipe, which tracks your hands, sends metrics about its own performance and usage to "
+            "Google (<a href=\"{privacy}\">Google's notice</a>).</p>"
+            "<p><b>Built with</b> MediaPipe and its hand model (Apache-2.0), OpenCV (Apache-2.0), Qt through "
+            "PySide6 (LGPL-3.0), NumPy (BSD-3-Clause), Pillow (MIT-CMU), sounddevice (MIT), soundfile "
+            "(BSD-3-Clause), PyYAML (MIT) and pyvirtualcam (GPL-2.0). Each keeps its own license; the list with "
+            "links is in the README file.</p>"
+            "<p>Google Meet, Zoom and Windows are trademarks of their owners. {name} is not affiliated with or "
+            "endorsed by them.</p>"),
+        "btn_license": "License text",
+        "btn_close": "Close",
+        "license_missing": "The full license text is at <a href=\"{url}\">{url}</a>.",
+        "privacy_text": (
+            "<p><b>Before you start</b></p>"
+            "<p>{name} tracks your hands with Google's MediaPipe library. Your camera picture is processed on this "
+            "computer and is not uploaded.</p>"
+            "<p>Google says MediaPipe also sends metrics about its own performance and usage to Google "
+            "(<a href=\"{url}\">Google's privacy notice</a>). Google does not document a way to turn this off. "
+            "By continuing you accept this.</p>"),
+        "privacy_continue": "Continue",
+        "privacy_quit": "Quit",
         "camera_failed": "The camera can't be used. Close other apps that use it (for example NVIDIA "
                          "Broadcast), then pick the camera again in Settings.",
         "tracker_failed": "The hand model is missing (models/hand_landmarker.task). "

@@ -1,1 +1,1 @@
-This folder is for the developer's local audio and is not used by the app. Users add sounds from the Jurus editor, which copies them to %APPDATA%\MeetCam\media. Files here are not committed (see .gitignore).
+This folder is for the developer's local audio and is not used by the app. Users add sounds from the Jurus editor, which copies them to %APPDATA%\Meetru\media. Files here are not committed (see .gitignore).

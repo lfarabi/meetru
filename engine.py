@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 lfarabi
 """The frame loop, in a QThread: camera -> hand tracking -> jurus (rules, orb, vanish) -> virtual camera,
 plus a preview image and a status dict for the window.
 

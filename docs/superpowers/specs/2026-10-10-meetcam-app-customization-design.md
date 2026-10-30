@@ -1,4 +1,4 @@
-# MeetCam app + customization: design
+# Meetru app + customization: design
 
 Date: 2026-10-10. Sub-project 1 of 2. Sub-project 2 (macOS/Linux support, driver setup wizard,
 installers built on GitHub Actions, making the repo public) gets its own spec after this ships.
@@ -105,9 +105,9 @@ Text and images read correctly in both, and "left" means the left of the preview
 
 ## Storage (`store.py`)
 
-Data folder from `QStandardPaths.AppDataLocation`, app name `MeetCam`
-(Windows `%APPDATA%\MeetCam`, macOS `~/Library/Application Support/MeetCam`,
-Linux `~/.local/share/MeetCam`):
+Data folder from `QStandardPaths.AppDataLocation`, app name `Meetru`
+(Windows `%APPDATA%\Meetru`, macOS `~/Library/Application Support/Meetru`,
+Linux `~/.local/share/Meetru`):
 
 - `settings.yaml`: camera, mic, monitor speaker, meeting output, virtual camera on/off,
   language, mirror preview, skeleton. Overrides the matching `config.yaml` keys.

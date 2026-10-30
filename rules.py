@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 lfarabi
 """The jurus runtime: turns the user's jurus list into objects (sounds loaded, visuals built) and
 decides every frame which of them fire.
 

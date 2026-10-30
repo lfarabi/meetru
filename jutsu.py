@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 lfarabi
 """Pose detectors and the vanishing effect; whoever decides a pose fired (rules) drives Vanish.
 
 - Vanishing effect: fire() plays a smoke puff and, under its densest moment, swaps you for a captured

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 lfarabi
 """Webcam hand landmarks via MediaPipe, plus palm geometry and smoothing."""
 import logging
 from pathlib import Path

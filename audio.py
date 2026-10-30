@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 lfarabi
 """Gesture SFX: placeholder sounds synthesized with NumPy and a low-latency mixer.
 
 The sound set (the built-in placeholders plus whatever the user's jurus load) is swapped in at

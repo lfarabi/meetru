@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 lfarabi
 """Per-user data folder: settings, jurus, custom gestures and imported media, saved safely."""
 import copy
 import filecmp
@@ -9,11 +11,12 @@ from pathlib import Path
 
 import yaml
 
-APP_NAME = "MeetCam"
+APP_NAME = "Meetru"
 
 DEFAULT_SETTINGS = {
     "camera_index": 0, "mic": None, "speaker": None, "meeting_output": "CABLE Input",
     "virtual_camera": True, "language": None, "mirror_preview": True, "skeleton": False,
+    "privacy_ack": False,   # the first-run notice (MediaPipe reports usage metrics to Google) was accepted
 }
 
 

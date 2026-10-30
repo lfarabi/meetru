@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 lfarabi
 import string
 from pathlib import Path
 
@@ -9,6 +11,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QDialog
 
 import i18n
+import legal
 import ui
 from gestures import BUILTIN_GESTURES
 from i18n import STRINGS, t
@@ -188,6 +191,16 @@ def test_the_keyboard_shortcuts(window):
     assert queued(e) == [("capture_room", ())]
     QTest.keyClick(window, Qt.Key_Q)
     assert not window.isVisible()
+
+
+def test_the_about_button_and_f1_open_the_about_box(window, monkeypatch):
+    opened = []
+    monkeypatch.setattr(legal.AboutDialog, "exec", lambda self: opened.append(self.windowTitle()))
+    window.show()
+    QTest.qWaitForWindowActive(window)
+    window.about.click()
+    QTest.keyClick(window, Qt.Key_F1)
+    assert opened == [t("about_title", name="Meetru")] * 2
 
 
 # --- the pickers, on made-up devices ----------------------------------------------------------

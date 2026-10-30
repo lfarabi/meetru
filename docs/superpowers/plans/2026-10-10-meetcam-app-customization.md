@@ -1,4 +1,4 @@
-# MeetCam App + Customization Implementation Plan
+# Meetru App + Customization Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -49,7 +49,7 @@ soundfile, PyYAML, pytest.
 
 **Interfaces:**
 - Produces:
-  - `APP_NAME = "MeetCam"`
+  - `APP_NAME = "Meetru"`
   - `DEFAULT_SETTINGS = {"camera_index": 0, "mic": None, "speaker": None, "meeting_output": "CABLE Input", "virtual_camera": True, "language": None, "mirror_preview": True, "skeleton": False}`
   - `DEFAULT_JURUS: list[dict]`, the spec's first-run defaults:
     - Bola Energi: `OPEN_PALM`, visual `{type: orb}`.
@@ -658,7 +658,7 @@ def test_failed_recording_shows_a_message_and_saves_nothing(tmp_path, qapp, monk
 - Modify: `README.md` (run, tabs, jurus, recording, where data lives; drop the `config.yaml` editing sections for SFX/poses), `DECISIONS.md` (one entry per spec decision, dated 2026-10-10), `.gitignore` (`*.broken`)
 - One-off, not committed: `<scratchpad>/migrate.py`
 
-- [ ] **Step 1: Write and run `migrate.py`.** It builds `%APPDATA%\MeetCam\jurus.yaml` from today's `config.yaml` (from git `main`) plus `assets/`:
+- [ ] **Step 1: Write and run `migrate.py`.** It builds `%APPDATA%\Meetru\jurus.yaml` from today's `config.yaml` (from git `main`) plus `assets/`:
 
 | Gesture | Name | Sound | Visual |
 |---|---|---|---|

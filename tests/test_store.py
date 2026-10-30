@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 lfarabi
 from store import DEFAULT_JURUS, DEFAULT_SETTINGS, Store
 
 

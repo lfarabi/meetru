@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 lfarabi
 """Recorded hand poses: build a template from a few seconds of frames, then match live hands to it."""
 import math
 from collections import Counter

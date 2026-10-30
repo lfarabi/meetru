@@ -1,6 +1,6 @@
-# MeetCam
+# Meetru
 
-Webcam hand tracking → gesture → sound and visual effects, sent to Google Meet / Zoom through a virtual camera. Everything you see and hear is a **jurus** ("move"): one hand gesture plus a sound and/or a visual, made and changed in the app. Design decisions: [DECISIONS.md](DECISIONS.md). Made by lfarabi with AI help: see [How MeetCam was made](#how-meetcam-was-made), [Privacy](#privacy) and [Credits, sources and licenses](#credits-sources-and-licenses).
+**Meetru** (from *Meeting Seru*, "fun meetings" in Indonesian): webcam hand tracking → gesture → sound and visual effects, sent to Google Meet / Zoom through a virtual camera. Everything you see and hear is a **jurus** ("move"): one hand gesture plus a sound and/or a visual, made and changed in the app. Design decisions: [DECISIONS.md](DECISIONS.md). Made by lfarabi with AI help: see [How Meetru was made](#how-meetru-was-made), [Privacy](#privacy) and [Credits, sources and licenses](#credits-sources-and-licenses).
 
 ## Setup (once)
 ```bash
@@ -17,7 +17,7 @@ Double-click `run.bat`, or run `.venv\Scripts\python main.py`. A webcam can be u
 The live preview is on the left (mirrored, like a mirror; the meeting gets the unmirrored picture). Under it:
 
 - Lights: **Virtual camera** and **Meeting audio** (ON/OFF; hover an OFF light to see what to install), FPS, the gesture seen right now, and an *Invisible* badge while the vanish jurus has hidden you.
-- Buttons, each with a key: **Effects** (`Space`, all jurus on/off), **Mute sounds** (`M`, silences the effect sounds for you and the meeting, never your voice), **Room photo** (`B`), **Skeleton** (`D`, draws the tracked hand). `Q` quits.
+- Buttons, each with a key: **Effects** (`Space`, all jurus on/off), **Mute sounds** (`M`, silences the effect sounds for you and the meeting, never your voice), **Room photo** (`B`), **Skeleton** (`D`, draws the tracked hand). `Q` quits. **About** (`F1`) shows the copyright, the license and the libraries used.
 
 On the right are three tabs. Every change in them is saved at once and applies live; nothing needs a restart except the language.
 
@@ -73,7 +73,7 @@ A video used as a visual, as vanish smoke, or as the orb should have a **one-col
 The vanish needs a photo of the empty room: press **Room photo** (`B`), step out of the frame within 5 s, and wait for *Empty-room photo saved*. Take it again whenever the camera or the light changes. While the vanish plays, its sound can't be cut and other jurus wait.
 
 ## Where your data lives
-Everything you make is in your user data folder, `%APPDATA%\MeetCam` (type it in the Explorer address bar):
+Everything you make is in your user data folder, `%APPDATA%\Meetru` (type it in the Explorer address bar):
 
 | Path | Content |
 |---|---|
@@ -93,7 +93,7 @@ Files are saved safely (a crash can't leave half a file). A file that can't be r
 Once: install **VB-CABLE** (https://vb-audio.com/Cable/ → download the zip → right-click `VBCABLE_Setup_x64.exe` → Run as administrator → Install Driver → restart). Keep the Windows default output on your speakers or headphones, not "CABLE Input".
 
 1. Close NVIDIA Broadcast and anything else holding the webcam.
-2. Start MeetCam **first**. Both lights should read ON: *Virtual camera* and *Meeting audio*.
+2. Start Meetru **first**. Both lights should read ON: *Virtual camera* and *Meeting audio*.
 3. In **Settings** pick your real **Microphone** (it is mixed into the meeting) and leave **Meeting output** on *CABLE Input*.
 4. In Meet: ⋮ → Settings →
    - **Video** → Camera: **OBS Virtual Camera** (not your physical webcam: this app is using it)
@@ -109,19 +109,20 @@ Your voice always passes through; **Mute sounds** only silences the effects. To 
 
 ## Privacy
 
-- Your camera picture, your voice and your hand movements are processed on your own computer. MeetCam does not upload them and has no account, server or analytics of its own.
-- The hand-tracking library, Google's **MediaPipe**, sends performance and usage metrics about its own functions to Google (not your camera images; Google says input data stays on the device). See Google's [MediaPipe Tasks privacy notice](https://developers.google.com/edge/mediapipe/solutions/tasks), also printed at the top of MediaPipe's `NOTICE` file. By using MeetCam you accept this; if you pass MeetCam on to others, tell them.
+- Your camera picture, your voice and your hand movements are processed on your own computer. Meetru does not upload them and has no account, server or analytics of its own.
+- The hand-tracking library, Google's **MediaPipe**, sends performance and usage metrics about its own functions to Google (not your camera images; Google says input data stays on the device). See Google's [MediaPipe Tasks privacy notice](https://developers.google.com/edge/mediapipe/solutions/tasks), also printed at the top of MediaPipe's `NOTICE` file. By using Meetru you accept this; if you pass Meetru on to others, tell them.
+- The first time you start Meetru it shows this and asks you to continue; if you choose Quit, nothing starts. **About** repeats it.
 - What you show and play in a meeting is seen and heard by everyone in it.
 
-## How MeetCam was made
+## How Meetru was made
 
-MeetCam is a **vibe-coded** project by **lfarabi**. The idea, the requirements, the testing and every decision are mine. Most of the code and documentation were written by an AI coding assistant, **Claude Code** (Anthropic), working under my direction, with help from many open-source projects, tools and their documentation, all listed below. Commits written with the AI carry a `Co-Authored-By: Claude …` line, and the design notes in [DECISIONS.md](DECISIONS.md) and [docs/superpowers/](docs/superpowers/) record how the work was directed.
+Meetru is a **vibe-coded** project by **lfarabi**. The idea, the requirements, the testing and every decision are mine. Most of the code and documentation were written by an AI coding assistant, **Claude Code** (Anthropic), working under my direction, with help from many open-source projects, tools and their documentation, all listed below. Commits written with the AI carry a `Co-Authored-By: Claude …` line, and the design notes in [DECISIONS.md](DECISIONS.md) and [docs/superpowers/](docs/superpowers/) record how the work was directed.
 
-MeetCam is **not a fork** of another project. It was written from scratch for this repository and, to the best of my knowledge, contains no code copied from other projects. The libraries it uses are installed separately (from PyPI, or downloaded by you) and are not part of this repository; their own licenses apply to them.
+Meetru is **not a fork** of another project. It was written from scratch for this repository and, to the best of my knowledge, contains no code copied from other projects. The libraries it uses are installed separately (from PyPI, or downloaded by you) and are not part of this repository; their own licenses apply to them.
 
 ## Credits, sources and licenses
 
-Libraries MeetCam uses (installed with `requirements.txt`):
+Libraries Meetru uses (installed with `requirements.txt`):
 
 | Library | Used for | License |
 |---|---|---|
@@ -139,15 +140,15 @@ Libraries MeetCam uses (installed with `requirements.txt`):
 
 They bring their own dependencies (matplotlib, absl-py, flatbuffers, certifi and others). The full list with versions, the components bundled inside each package, and what each license asks for is in the [license and IP audit](docs/research/2026-10-30-license-ip-audit.md).
 
-**Note on pyvirtualcam.** It is licensed GPL-2.0 without "or later", which on the Free Software Foundation's reading cannot be combined with GPL-3.0 and Apache-2.0 code in one distributed package. This repository only contains MeetCam's own source code, so nothing is combined here; before any installer that bundles the libraries is published, this has to be settled (options are in section 3 of the audit).
+**Note on pyvirtualcam.** It is licensed GPL-2.0 without "or later", which on the Free Software Foundation's reading cannot be combined with GPL-3.0 and Apache-2.0 code in one distributed package. This repository only contains Meetru's own source code, so nothing is combined here; before any installer that bundles the libraries is published, this has to be settled (options are in section 3 of the audit).
 
-Installed by you, not included in MeetCam:
+Installed by you, not included in Meetru:
 
 - [OBS Studio](https://obsproject.com) by the OBS Project (GPL-2.0-or-later): provides the "OBS Virtual Camera" device.
 - [VB-CABLE](https://vb-audio.com/Cable/) by VB-Audio Software: donationware (www.vb-cable.com); use inside a company or organisation needs a paid license from VB-Audio.
 - [Python](https://www.python.org) (PSF License).
 
-Tools used to build MeetCam (not included in it):
+Tools used to build Meetru (not included in it):
 
 - [Claude Code](https://claude.com/claude-code) by Anthropic: the AI coding assistant.
 - [superpowers](https://github.com/obra/superpowers) by Jesse Vincent (MIT): planning, review and test-first workflow skills.
@@ -155,12 +156,14 @@ Tools used to build MeetCam (not included in it):
 - [Matt Pocock's skills](https://github.com/mattpocock/skills): grilling, research and other workflow skills.
 - [GitHub CLI](https://cli.github.com).
 
-**Trademarks and inspiration.** Google Meet is a trademark of Google LLC; Zoom is a trademark of Zoom Communications, Inc.; Windows is a trademark of Microsoft Corporation; OBS Studio is a project of the OBS Project; VB-CABLE and VB-Audio are names of VB-Audio Software. They are mentioned only to say what MeetCam works with. MeetCam is an independent project and is not affiliated with or endorsed by any of them. The energy-orb and hand-seal effects are inspired by anime in general; MeetCam is not affiliated with any anime or manga or their rights holders.
+**Trademarks and inspiration.** Google Meet is a trademark of Google LLC; Zoom is a trademark of Zoom Communications, Inc.; Windows is a trademark of Microsoft Corporation; OBS Studio is a project of the OBS Project; VB-CABLE and VB-Audio are names of VB-Audio Software. They are mentioned only to say what Meetru works with. Meetru is an independent project and is not affiliated with or endorsed by any of them. The energy-orb and hand-seal effects are inspired by anime in general; Meetru is not affiliated with any anime or manga or their rights holders.
 
-**Media.** MeetCam ships no copyrighted media: the starter sounds are synthesized in code and the orb is drawn in code. The pictures, sounds and videos you add stay on your computer (`%APPDATA%\MeetCam\media`) and are never part of this repository. Only use media you have the right to use, and don't use a real person's voice, face or name without their permission.
+**Media.** Meetru ships no copyrighted media: the starter sounds are synthesized in code and the orb is drawn in code. The pictures, sounds and videos you add stay on your computer (`%APPDATA%\Meetru\media`) and are never part of this repository. Only use media you have the right to use, and don't use a real person's voice, face or name without their permission.
 
 ## License
 
 Copyright © 2026 lfarabi.
 
-MeetCam is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License v3.0 (see [LICENSE](LICENSE)). It comes with **no warranty**. The libraries and tools listed above keep their own licenses.
+Meetru is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version (SPDX: `GPL-3.0-or-later`; see [LICENSE](LICENSE)). It comes with **no warranty**. The libraries and tools listed above keep their own licenses.
+
+Contributions are welcome under the same license: see [CONTRIBUTING.md](CONTRIBUTING.md) (commits are signed off with the [Developer Certificate of Origin](DCO)).

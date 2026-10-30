@@ -1,5 +1,5 @@
 # Advanced, technical tuning. Jurus (gesture -> sound -> visual), devices and language are set in the
-# app and kept in %APPDATA%\MeetCam (see README). Keys marked "overridden in Settings" are replaced there.
+# app and kept in %APPDATA%\Meetru (see README). Keys marked "overridden in Settings" are replaced there.
 
 camera:
   device_id: 0         # overridden in Settings (Camera)
@@ -70,7 +70,7 @@ blast:
 
 vanish_defaults:
   # used by the vanish visual of a jurus (the smoke clip is set per jurus; the empty-room photo is
-  # %APPDATA%\MeetCam\background.png, taken with the Room photo button / B)
+  # %APPDATA%\Meetru\background.png, taken with the Room photo button / B)
   capture_delay: 5       # seconds to leave the frame after pressing Room photo (B)
   smoke_height: 1.8      # smoke size relative to the frame height (its densest puff lands on the seal)
 
