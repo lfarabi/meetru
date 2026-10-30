@@ -1,6 +1,6 @@
 # MeetCam
 
-Webcam hand tracking → gesture → sound and visual effects, sent to Google Meet / Zoom through a virtual camera. Everything you see and hear is a **jurus** ("move"): one hand gesture plus a sound and/or a visual, made and changed in the app. Design decisions: [DECISIONS.md](DECISIONS.md).
+Webcam hand tracking → gesture → sound and visual effects, sent to Google Meet / Zoom through a virtual camera. Everything you see and hear is a **jurus** ("move"): one hand gesture plus a sound and/or a visual, made and changed in the app. Design decisions: [DECISIONS.md](DECISIONS.md). Made by lfarabi with AI help: see [How MeetCam was made](#how-meetcam-was-made), [Privacy](#privacy) and [Credits, sources and licenses](#credits-sources-and-licenses).
 
 ## Setup (once)
 ```bash
@@ -106,3 +106,61 @@ Your voice always passes through; **Mute sounds** only silences the effects. To 
 ```bash
 .venv\Scripts\python -m pytest -q
 ```
+
+## Privacy
+
+- Your camera picture, your voice and your hand movements are processed on your own computer. MeetCam does not upload them and has no account, server or analytics of its own.
+- The hand-tracking library, Google's **MediaPipe**, sends performance and usage metrics about its own functions to Google (not your camera images; Google says input data stays on the device). See Google's [MediaPipe Tasks privacy notice](https://developers.google.com/edge/mediapipe/solutions/tasks), also printed at the top of MediaPipe's `NOTICE` file. By using MeetCam you accept this; if you pass MeetCam on to others, tell them.
+- What you show and play in a meeting is seen and heard by everyone in it.
+
+## How MeetCam was made
+
+MeetCam is a **vibe-coded** project by **lfarabi**. The idea, the requirements, the testing and every decision are mine. Most of the code and documentation were written by an AI coding assistant, **Claude Code** (Anthropic), working under my direction, with help from many open-source projects, tools and their documentation, all listed below. Commits written with the AI carry a `Co-Authored-By: Claude …` line, and the design notes in [DECISIONS.md](DECISIONS.md) and [docs/superpowers/](docs/superpowers/) record how the work was directed.
+
+MeetCam is **not a fork** of another project. It was written from scratch for this repository and, to the best of my knowledge, contains no code copied from other projects. The libraries it uses are installed separately (from PyPI, or downloaded by you) and are not part of this repository; their own licenses apply to them.
+
+## Credits, sources and licenses
+
+Libraries MeetCam uses (installed with `requirements.txt`):
+
+| Library | Used for | License |
+|---|---|---|
+| [MediaPipe](https://github.com/google-ai-edge/mediapipe) (Google) | hand tracking | Apache-2.0 |
+| [MediaPipe Hand Landmarker model](https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker) (`hand_landmarker.task`, Google) | the trained hand model downloaded in Setup | Apache-2.0 (per Google's model card) |
+| [OpenCV](https://opencv.org) ([opencv-contrib-python](https://github.com/opencv/opencv-python)) | camera capture and image processing; the package includes FFmpeg (LGPL-2.1-or-later) and Intel IPP (Intel Simplified Software License) | Apache-2.0 |
+| [Qt 6](https://www.qt.io) through [PySide6](https://pypi.org/project/PySide6/) (The Qt Company) | the window; the package includes FFmpeg (LGPL-2.1-or-later) | LGPL-3.0 (or GPL-3.0) |
+| [NumPy](https://numpy.org) | numbers and images | BSD-3-Clause |
+| [Pillow](https://pillow.readthedocs.io) | pictures and GIFs; based in part on the work of the FreeType Team and the Independent JPEG Group | MIT-CMU |
+| [sounddevice](https://github.com/spatialaudio/python-sounddevice) with [PortAudio](https://www.portaudio.com) | playing sounds and reading the microphone | MIT |
+| [soundfile](https://github.com/bastibe/python-soundfile) with [libsndfile](https://libsndfile.github.io/libsndfile/) | reading MP3, WAV, OGG and FLAC | BSD-3-Clause; libsndfile LGPL-2.1-or-later |
+| [PyYAML](https://pyyaml.org) | the settings files | MIT |
+| [pyvirtualcam](https://github.com/letmaik/pyvirtualcam) (Maik Riechert and contributors) | sending the video to the OBS virtual camera | GPL-2.0 (see the note below) |
+| [pytest](https://pytest.org) | the tests only | MIT |
+
+They bring their own dependencies (matplotlib, absl-py, flatbuffers, certifi and others). The full list with versions, the components bundled inside each package, and what each license asks for is in the [license and IP audit](docs/research/2026-10-30-license-ip-audit.md).
+
+**Note on pyvirtualcam.** It is licensed GPL-2.0 without "or later", which on the Free Software Foundation's reading cannot be combined with GPL-3.0 and Apache-2.0 code in one distributed package. This repository only contains MeetCam's own source code, so nothing is combined here; before any installer that bundles the libraries is published, this has to be settled (options are in section 3 of the audit).
+
+Installed by you, not included in MeetCam:
+
+- [OBS Studio](https://obsproject.com) by the OBS Project (GPL-2.0-or-later): provides the "OBS Virtual Camera" device.
+- [VB-CABLE](https://vb-audio.com/Cable/) by VB-Audio Software: donationware (www.vb-cable.com); use inside a company or organisation needs a paid license from VB-Audio.
+- [Python](https://www.python.org) (PSF License).
+
+Tools used to build MeetCam (not included in it):
+
+- [Claude Code](https://claude.com/claude-code) by Anthropic: the AI coding assistant.
+- [superpowers](https://github.com/obra/superpowers) by Jesse Vincent (MIT): planning, review and test-first workflow skills.
+- [ponytail](https://github.com/dietrichgebert/ponytail) by Dietrich Gebert (MIT): "keep it simple" coding rules.
+- [Matt Pocock's skills](https://github.com/mattpocock/skills): grilling, research and other workflow skills.
+- [GitHub CLI](https://cli.github.com).
+
+**Trademarks and inspiration.** Google Meet is a trademark of Google LLC; Zoom is a trademark of Zoom Communications, Inc.; Windows is a trademark of Microsoft Corporation; OBS Studio is a project of the OBS Project; VB-CABLE and VB-Audio are names of VB-Audio Software. They are mentioned only to say what MeetCam works with. MeetCam is an independent project and is not affiliated with or endorsed by any of them. The energy-orb and hand-seal effects are inspired by anime in general; MeetCam is not affiliated with any anime or manga or their rights holders.
+
+**Media.** MeetCam ships no copyrighted media: the starter sounds are synthesized in code and the orb is drawn in code. The pictures, sounds and videos you add stay on your computer (`%APPDATA%\MeetCam\media`) and are never part of this repository. Only use media you have the right to use, and don't use a real person's voice, face or name without their permission.
+
+## License
+
+Copyright © 2026 lfarabi.
+
+MeetCam is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License v3.0 (see [LICENSE](LICENSE)). It comes with **no warranty**. The libraries and tools listed above keep their own licenses.

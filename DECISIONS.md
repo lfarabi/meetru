@@ -73,3 +73,14 @@ Desain: `docs/superpowers/specs/2026-10-10-meetcam-app-customization-design.md`.
 - **Thread engine tidak boleh mati.** Tiap frame, perintah, dan reload dibungkus: kegagalan dicatat (paling sering tiap 5 detik) lalu loop jalan terus, dan penutupan perangkat selalu sampai ke kamera. File atau setelan rusak hanya membuat jurusnya bertanda ⚠ dan dilewati.
 - **Jendela muat di 1366x768 dalam kedua bahasa.** Ukuran awal 1200x680, baris lampu dan tombol dibuat pendek, label di atas pilihan, nama perangkat panjang dipotong; sebuah tes memeriksa lebar dan tinggi dalam bahasa Indonesia dan Inggris.
 - **Jurus bawaan tanpa media berhak cipta.** Pertama kali jalan: Bola Energi (orb yang digambar dengan kode, suara sintesis), Beep 1-4 di ONE..FOUR (sintesis, FOUR berulang), Menghilang (vanish tanpa klip asap = crossfade biasa), dan WOW (teks "WOW!" di atas selama 2 detik). Yang memakai media asli adalah milik pengguna, ditambahkan dari editor Jurus.
+
+## 2026-10-30 — Lisensi dan HKI
+
+Audit lengkap (dengan sumber primer): `docs/research/2026-10-30-license-ip-audit.md`. Catatan riset, bukan nasihat hukum.
+
+- **Media tidak pernah masuk git.** Riwayat semua branch diperiksa: tidak ada MP3/MP4/gambar/model yang pernah ter-commit.
+- **Nama umum.** Istilah anime dan nama tokoh nyata diganti di file yang dilacak (jurus bawaan "Bola Energi"); nama lama masih ada di riwayat git dan judul PR lama. Modul `jutsu.py` tetap (kata umum bahasa Jepang).
+- **Kredit, privasi, lisensi di README.** Sumber semua pustaka/alat, pernyataan proyek vibe-code dengan bantuan AI (Claude Code), bukan fork, tanpa afiliasi merek.
+- **MediaPipe mengirim metrik penggunaan ke Google** (bukan gambar kamera); NOTICE-nya mewajibkan pembuat aplikasi memberi tahu pengguna: diungkap di README; pemberitahuan di aplikasi sebelum rilis publik.
+- **pyvirtualcam GPL-2.0 (tanpa "or later")** tidak cocok dengan GPL-3.0/Apache-2.0 dalam satu paket: tidak masalah untuk repo kode sumber; harus diputuskan sebelum installer (opsi di bagian 3 audit).
+- **Nama "MeetCam" sudah dipakai** produk lain (aplikasi Android, meetcam.tv): pertimbangkan nama lain sebelum rilis publik.
