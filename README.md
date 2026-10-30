@@ -6,7 +6,7 @@
 ```bash
 py -3.12 -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
-curl -L -o models/hand_landmarker.task https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task
+curl -L --create-dirs -o models/hand_landmarker.task https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task
 ```
 `requirements.txt` includes PySide6 (the Qt window) and Pillow (images and GIFs). The virtual camera needs OBS Studio installed once (it brings the "OBS Virtual Camera" driver; OBS itself need not run). The virtual camera works on Windows for now; on macOS and Linux Meetru runs with the preview only. For sound in meetings see [Use in Meet / Zoom](#use-in-meet--zoom).
 
