@@ -23,7 +23,7 @@ def _sound(n: int, mode: str = "once") -> dict:
 
 # Canonical form the jurus editor emits: no `sound`/`visual` key when there is none.
 DEFAULT_JURUS = [
-    {"name": "Orb", "enabled": True, "gesture": "OPEN_PALM", "hold": 0.3, "exclusive": False,
+    {"name": "Bola Energi", "enabled": True, "gesture": "OPEN_PALM", "hold": 0.3, "exclusive": False,
      "visual": {"type": "orb"}},
     {"name": "Beep 1", "enabled": True, "gesture": "ONE", "hold": 0.3, "exclusive": False, "sound": _sound(1)},
     {"name": "Beep 2", "enabled": True, "gesture": "TWO", "hold": 0.3, "exclusive": False, "sound": _sound(2)},

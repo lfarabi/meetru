@@ -408,7 +408,7 @@ def test_a_fresh_tab_has_the_first_jurus_selected(tmp_path, qapp):
 
 
 def test_try_is_off_for_the_orb_which_only_its_gesture_summons(tmp_path, qapp):
-    tab = jurus_tab(tmp_path)                                   # row 0 is the Orb orb
+    tab = jurus_tab(tmp_path)                                   # row 0 is the Bola Energi orb
     assert not tab.try_btn.isEnabled() and tab.try_btn.toolTip() == t("try_orb")
     tab.list.setCurrentRow(1)
     assert tab.try_btn.isEnabled() and tab.try_btn.toolTip() == ""
@@ -452,10 +452,10 @@ def test_add_and_edit_open_the_editor_with_what_the_other_jurus_use(tmp_path, mo
         def value(self):
             return {**(self.jurus or DEFAULT_JURUS[1]), "name": "Changed"}
     monkeypatch.setattr(ui, "JurusEditor", Stub)
-    tab.list.setCurrentRow(0)  # Orb (the orb): only the vanish is used by the others
+    tab.list.setCurrentRow(0)  # Bola Energi (the orb): only the vanish is used by the others
     tab.edit_btn.click()
-    others = {j["name"] for j in DEFAULT_JURUS} - {"Orb"}
-    assert opened[-1] == ("Orb", {"vanish"}, others)
+    others = {j["name"] for j in DEFAULT_JURUS} - {"Bola Energi"}
+    assert opened[-1] == ("Bola Energi", {"vanish"}, others)
     assert Store(tmp_path).load_jurus()[0]["name"] == "Changed" and tab.list.item(0).text().startswith("Changed")
     tab.add_btn.click()
     assert opened[-1] == (None, {"orb", "vanish"}, others | {"Changed"})
@@ -943,7 +943,7 @@ def test_the_jurus_tab_and_the_gesture_tab_ask_alike_before_deleting(tmp_path, m
     press(monkeypatch, t("btn_cancel"))
     jurus_tab(tmp_path).delete_btn.click()
     gesture_tab(tmp_path / "g", [gesture("peace")]).delete_btn.click()
-    assert deleted == [t("confirm_delete", name="Orb"), t("confirm_delete_gesture", name="peace")]
+    assert deleted == [t("confirm_delete", name="Bola Energi"), t("confirm_delete_gesture", name="peace")]
 
 
 def failing_disk(monkeypatch, store, *names):

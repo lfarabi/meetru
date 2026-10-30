@@ -6,7 +6,7 @@
 pairing is editable, including user-recorded gestures, with all current effects kept.
 
 **Architecture:** Today's per-frame loop moves from `main.py` into `engine.py` (a `QThread`). Hard-wired
-features (finger SFX, seal, wow, Figure) become data: `jurus.yaml` entries run by `rules.py`, which uses
+features (finger SFX, seal, wow, raised fist) become data: `jurus.yaml` entries run by `rules.py`, which uses
 `poses.py` (recorded gestures), `overlay.py` (image/video/text) and the existing orb/vanish code.
 `store.py` owns the per-user data folder; `ui.py` edits it and hands rebuilt rules to the engine.
 
@@ -52,7 +52,7 @@ soundfile, PyYAML, pytest.
   - `APP_NAME = "MeetCam"`
   - `DEFAULT_SETTINGS = {"camera_index": 0, "mic": None, "speaker": None, "meeting_output": "CABLE Input", "virtual_camera": True, "language": None, "mirror_preview": True, "skeleton": False}`
   - `DEFAULT_JURUS: list[dict]`, the spec's first-run defaults:
-    - Orb: `OPEN_PALM`, visual `{type: orb}`.
+    - Bola Energi: `OPEN_PALM`, visual `{type: orb}`.
     - Beep 1–4: `ONE`…`FOUR`, sound `builtin:finger_1`…`builtin:finger_4`. FOUR uses mode `loop`, the others `once`. hold 0.3.
     - Menghilang: `SEAL`, exclusive, sound `builtin:finger_3`, visual `{type: vanish}`.
     - WOW: `WOW`, exclusive, sound `builtin:finger_2`, visual `{type: text, text: "WOW!", color: "#ffd400", position: top, size: 0.25, duration: 2.0}`.
@@ -320,7 +320,7 @@ def test_loop_sounds_follow_the_set():
 ### Task 5: generalise the orb trigger and the vanish; drop `PoseClip`
 
 **Files:**
-- Modify: `gestures.py` (`OrbMachine`, gesture ids), `jutsu.py` (`Vanish`; delete `PoseClip`, `RELEASE_FADE`), `config.yaml` (delete the `vanish`, `wow` and `figure` sections; add `vanish_defaults: {capture_delay: 5, smoke_height: 1.8}`), `tests/test_logic.py`
+- Modify: `gestures.py` (`OrbMachine`, gesture ids), `jutsu.py` (`Vanish`; delete `PoseClip`, `RELEASE_FADE`), `config.yaml` (delete the `vanish`, `wow` and raised-fist sections; add `vanish_defaults: {capture_delay: 5, smoke_height: 1.8}`), `tests/test_logic.py`
 
 **Interfaces:**
 - Produces:
@@ -662,11 +662,11 @@ def test_failed_recording_shows_a_message_and_saves_nothing(tmp_path, qapp, monk
 
 | Gesture | Name | Sound | Visual |
 |---|---|---|---|
-| OPEN_PALM | Orb | — | `orb`, `file` = `orb.mp4` |
+| OPEN_PALM | Orb | — | `orb`, `file` = the user's orb clip |
 | ONE…FOUR | — | the four finger MP3s, mode `once` | — |
-| SEAL | seal | `seal_sound.mp3` (exclusive) | `vanish` with `smoke.mp4` |
+| SEAL | Seal | the user's seal sound (exclusive) | `vanish` with the user's smoke clip |
 | WOW | Wow | `anime-wow-sound-effect.mp3` (exclusive) | `video` `wow.mp4`, position `full`, size 1.0, duration = clip length |
-| RAISED_FIST | Raised-fist sound | `raised-fist-sound.mp3` (exclusive) | `video` `surprise.mp4`, position `bottom_left`, size 0.8, duration `held` |
+| RAISED_FIST | Raised fist | the user's raised-fist sound (exclusive) | `video` (the user's clip), position `bottom_left`, size 0.8, duration `held` |
 
 Every media file goes in through `Store.import_media`. It also copies `assets/background.png` to `store.background`.
 
@@ -676,7 +676,7 @@ Every media file goes in through `Store.import_media`. It also copies `assets/ba
 
 - [ ] **Step 4: Live checklist for the user.** Report the results; fix failures before the PR.
   1. Preview and lights. Meet still receives video, voice and SFX.
-  2. Each migrated jurus fires as before (Orb charge/blast, fingers stop on release, seal vanish, wow, raised fist).
+  2. Each migrated jurus fires as before (orb charge/blast, fingers stop on release, seal vanish, wow, raised fist).
   3. Add a jurus of each kind (image PNG, GIF, video, text) at a grid position and at `hand`. Text reads correctly in both the preview and Meet.
   4. Record a one-hand gesture and a two-hand gesture, attach them to jurus, and check that they fire. Check the score bar and the sensitivity slider.
   5. Switch the language to EN and back. Restart: everything persists.

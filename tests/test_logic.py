@@ -573,7 +573,7 @@ from orb import EnergyOrb, load_video_sprite  # noqa: E402
 
 
 def write_orb_clip(path, n=48, side=160, radius=40):
-    """Black clip: 8 black frames, a disc growing for 8 frames, then a steady disc (like orb.mp4)."""
+    """Black clip: 8 black frames, a disc growing for 8 frames, then a steady disc (like a typical orb clip)."""
     out = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 24, (side, side))
     for i in range(n):
         f = np.zeros((side, side, 3), np.uint8)
@@ -796,7 +796,7 @@ def test_dull_green_screen_keys_cleanly_and_keeps_its_framing(tmp_path):
     assert clip.source_width == 160 and clip.origin[0] >= 95  # crop remembers it sat on the right
 
 
-# --- raised fist → Figure ---------------------------------------------------------------------
+# --- raised fist ------------------------------------------------------------------------------
 from jutsu import raised_fist  # noqa: E402
 
 

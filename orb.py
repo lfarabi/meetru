@@ -1,4 +1,4 @@
-"""Energy Orb (a looping video clip, or procedural Orb-style) and blast, drawn onto the output frame."""
+"""Energy Orb (a looping video clip, or procedural, drawn in code) and blast, drawn onto the output frame."""
 import logging
 import math
 from pathlib import Path

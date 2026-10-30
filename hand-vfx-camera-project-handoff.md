@@ -965,7 +965,7 @@ Effect
 ├── EnergyOrb
 ├── FireBall
 ├── Lightning
-├── Orb
+├── SpiralOrb
 ├── MagicCircle
 ├── Telekinesis
 └── GlowingEyes
@@ -986,9 +986,9 @@ Effects should be replaceable without modifying hand tracking.
 
 ---
 
-# 25. Future "Orb" Effect
+# 25. Future "Spiral Orb" Effect
 
-After Energy Orb is stable, build Orb.
+After Energy Orb is stable, build the spiral orb.
 
 Visual layers:
 
@@ -1393,7 +1393,7 @@ Echo testing
 ### Sprint 7
 
 ```text
-Orb
+Spiral orb
 +
 Fire
 +

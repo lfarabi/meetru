@@ -37,8 +37,8 @@ orb:
   # style and video are overridden by the orb jurus: its video file (black background, orb centered; intro,
   # loop and size are auto-detected) is screen-blended, and with no file, or one that can't be read, the
   # orb is drawn in code. Everything else below is the orb's look and feel.
-  style: video           # video = a clip, screen-blended; procedural = drawn in code
-  video: assets/video/orb.mp4
+  style: procedural      # video = a clip, screen-blended; procedural = drawn in code
+  video: null
   video_scale: 1.0       # size tweak for the video orb
   color_bgr: [255, 115, 20]   # procedural orb / blast: electric blue body; streaks and core glow toward white
   radius: 0.6            # sphere radius in palm lengths (wrist→middle MCP)

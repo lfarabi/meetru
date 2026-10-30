@@ -61,8 +61,8 @@ Camera, microphone, speaker (what you hear), meeting output (what the others hea
 | Visual | What it does |
 |---|---|
 | Picture / Video / Text | drawn at its position and size, for as long as *Shown for* says |
-| Energy orb | the energy orb (Orb): the gesture summons it on your hand. Hold it with the palm turned away from the camera to charge (up to 3 s, the sound rises), then turn the palm to the camera to blast. Changing to any other gesture, or taking the hand out of frame, puts it out. A video file is optional (a clip on a black backdrop, orb in the centre; without one a drawn orb is used), and so are the four orb sounds (appear, charge, blast, power down). |
-| Vanish | the seal vanish: the gesture swaps you for the empty-room photo, with a smoke clip (optional) bursting where your hands are; do it again and you come back |
+| Energy orb | an anime-style energy orb: the gesture summons it on your hand. Hold it with the palm turned away from the camera to charge (up to 3 s, the sound rises), then turn the palm to the camera to blast. Changing to any other gesture, or taking the hand out of frame, puts it out. A video file is optional (a clip on a black backdrop, orb in the centre; without one a drawn orb is used), and so are the four orb sounds (appear, charge, blast, power down). |
+| Vanish | a disappearing trick: the gesture swaps you for the empty-room photo, with a smoke clip (optional) bursting where your hands are; do it again and you come back |
 
 Positions: *on the hand* (centred on the palm; size is in palm lengths), *full screen* (the clip keeps its own framing, so Size has no effect there), or one of nine spots on a 3x3 grid. Size is a fraction of the frame height. Positions are **as seen in your mirrored preview**: "left" is the left of your preview, and the meeting sees it on the right so that text and pictures read correctly there too (with the preview not mirrored, it shows what the meeting sees, positions included). There can be only one orb and one vanish jurus (the editor greys the option out when it is taken).
 
@@ -83,7 +83,7 @@ Everything you make is in your user data folder, `%APPDATA%\MeetCam` (type it in
 | `media/` | the sounds, pictures and videos you picked (a clash in names gets `_2`, `_3`...; deleting a jurus leaves its files) |
 | `background.png` | the empty-room photo |
 
-Files are saved safely (a crash can't leave half a file). A file that can't be read is renamed to `<name>.broken`, the defaults are used, and the window tells you at start. On the first run you get a starter set with no copyrighted media: Orb (a drawn orb), Beep 1-4 on the finger gestures, a plain vanish and a WOW text.
+Files are saved safely (a crash can't leave half a file). A file that can't be read is renamed to `<name>.broken`, the defaults are used, and the window tells you at start. On the first run you get a starter set with no copyrighted media: Bola Energi (a drawn energy orb), Beep 1-4 on the finger gestures, a plain vanish and a WOW text.
 
 `config.yaml` stays as the advanced, technical tuning (gesture thresholds, orb look, audio latency). Normal use never needs it; the device, language and jurus choices above are not read from it.
 

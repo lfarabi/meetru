@@ -11,7 +11,7 @@ def test_loaded_defaults_are_copies(tmp_path):
     s.load_jurus()[0]["name"] = "changed"
     s.load_settings()["language"] = "xx"
     assert s.load_jurus() == DEFAULT_JURUS and s.load_settings() == DEFAULT_SETTINGS
-    assert DEFAULT_JURUS[0]["name"] == "Orb" and DEFAULT_SETTINGS["language"] is None
+    assert DEFAULT_JURUS[0]["name"] == "Bola Energi" and DEFAULT_SETTINGS["language"] is None
 
 
 def test_round_trip(tmp_path):

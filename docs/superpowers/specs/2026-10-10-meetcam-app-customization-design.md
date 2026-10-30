@@ -14,7 +14,7 @@ sub-project 2.
 Decisions taken with the user (2026-10-10):
 - audience: free public release (repo goes public in sub-project 2, GPL-3.0)
 - gestures: built-in list **and** user-recorded poses
-- visuals: image (PNG/JPG/GIF), video clip, text, built-in specials (Orb, vanish)
+- visuals: image (PNG/JPG/GIF), video clip, text, built-in specials (energy orb, vanish)
 - UI language: Indonesian + English, default from the OS locale
 - UI toolkit: Qt (PySide6), one window
 
@@ -24,7 +24,7 @@ Decisions taken with the user (2026-10-10):
 
 ```yaml
 # jurus.yaml: a list, evaluated in order
-- name: Orb
+- name: Bola Energi
   enabled: true
   gesture: OPEN_PALM          # built-in id, or rec:<name> for a recorded gesture
   hold: 0.3                   # seconds the gesture must be held before the jurus fires
@@ -57,7 +57,7 @@ two hands.
 - One sound at a time: a jurus's sound cuts the previous one, unless that one is `exclusive`.
 - Non-exclusive sounds stop when the gesture is released; exclusive ones play to the end and block
   other jurus from firing until both their sound and visual have finished (today: seal, wow,
-  Figure fist).
+  raised fist).
 - Two hands seen within `gesture.two_hand_grace` → one-hand gestures don't fire.
 - Orb charging/blast/cooldown → other jurus don't fire.
 - A jurus fires once per hold; re-arms after release; short tracker gaps (`gap`) don't count as release.
@@ -121,14 +121,14 @@ Saved on every edit (write to temp file + rename, so a crash can't leave half a 
 fails to parse is renamed `*.broken` and defaults are used, with a message in the UI.
 
 `config.yaml` stays as the technical defaults (thresholds, orb tuning). Its `finger_sfx`, `vanish`,
-`wow` and `figure` sections are replaced by jurus.
+`wow` and raised-fist sections are replaced by jurus.
 
-**First-run defaults** (no copyrighted media): Orb (OPEN_PALM → procedural orb, synthesized
+**First-run defaults** (no copyrighted media): Bola Energi (OPEN_PALM → procedural orb, synthesized
 orb sounds); Beep 1–4 (ONE…FOUR → synthesized finger sounds, FOUR looped); Menghilang
 (SEAL → vanish, no smoke clip = plain crossfade); WOW (WOW → text "WOW!" top, 2 s).
 
-**This PC**: the current setup (Anime smoke + sound, wow clip, Figure fist, finger MP3s,
-orb.mp4) is converted once into this user's `jurus.yaml` + `media/` by a one-off script that
+**This PC**: the current setup (the user's own smoke clip + seal sound, wow clip, raised-fist clip, finger MP3s,
+orb clip) is converted once into this user's `jurus.yaml` + `media/` by a one-off script that
 isn't committed.
 
 ## UI (`ui.py`, `i18n.py`)

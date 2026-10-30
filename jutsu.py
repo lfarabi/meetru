@@ -1,7 +1,7 @@
 """Pose detectors and the vanishing effect; whoever decides a pose fired (rules) drives Vanish.
 
-- Vanishing jutsu: fire() plays a smoke puff and, under its densest moment, swaps you for a captured
-  empty-room plate (or brings you back). The crossed two-finger seal (seal) is its default trigger.
+- Vanishing effect: fire() plays a smoke puff and, under its densest moment, swaps you for a captured
+  empty-room plate (or brings you back). The crossed two-finger seal is its default trigger.
 - Detectors: seal_point, wow_pose (both open hands together under the chin), raised_fist.
 """
 import logging
