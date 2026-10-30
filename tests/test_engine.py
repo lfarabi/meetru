@@ -8,6 +8,7 @@ from conftest import FakeTracker, make_engine
 from test_logic import HORIZONTAL, VERTICAL, hand3d, pick
 
 import engine
+import virtualcam
 from gestures import ACTIVE, FADING, HIDDEN
 from poses import make_template
 from rules import build
@@ -20,14 +21,14 @@ BLACK = lambda w=640, h=360: np.zeros((h, w, 3), np.uint8)  # noqa: E731
 
 # --- virtual camera -------------------------------------------------------------
 def test_virtual_camera_failure_falls_back_to_preview_only(monkeypatch):
-    def busy(**kwargs):
-        raise RuntimeError("virtual camera output could not be started")
-    monkeypatch.setattr(engine.pyvirtualcam, "Camera", busy)
-    assert engine.open_virtual_camera({"enabled": True, "backend": "obs"}, 1280, 720, 30) is None
+    def busy(*args, **kwargs):
+        raise virtualcam.VirtualCameraError("another program is already sending to the virtual camera")
+    monkeypatch.setattr(engine, "ObsVirtualCamera", busy)
+    assert engine.open_virtual_camera({"enabled": True}, 1280, 720, 30) is None
 
 
 def test_virtual_camera_can_be_disabled():
-    assert engine.open_virtual_camera({"enabled": False, "backend": "obs"}, 1280, 720, 30) is None
+    assert engine.open_virtual_camera({"enabled": False}, 1280, 720, 30) is None
 
 
 # --- a frame ------------------------------------------------------------------------

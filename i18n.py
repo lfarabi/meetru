@@ -148,7 +148,8 @@ STRINGS = {
             "Google (<a href=\"{privacy}\">pemberitahuan Google</a>).</p>"
             "<p><b>Dibuat dengan</b> MediaPipe dan model tangannya (Apache-2.0), OpenCV (Apache-2.0), Qt lewat "
             "PySide6 (LGPL-3.0), NumPy (BSD-3-Clause), Pillow (MIT-CMU), sounddevice (MIT), soundfile "
-            "(BSD-3-Clause), PyYAML (MIT) dan pyvirtualcam (GPL-2.0). Masing-masing tetap berlisensi sendiri; "
+            "(BSD-3-Clause) dan PyYAML (MIT). Video dikirim ke kamera virtual OBS Studio yang Anda pasang sendiri "
+            "(GPL-2.0-or-later). Masing-masing tetap berlisensi sendiri; "
             "daftar lengkap dengan tautan ada di file README.</p>"
             "<p>Google Meet, Zoom, dan Windows adalah merek dagang pemiliknya. {name} tidak berafiliasi dengan "
             "atau didukung oleh mereka.</p>"),
@@ -319,7 +320,8 @@ STRINGS = {
             "Google (<a href=\"{privacy}\">Google's notice</a>).</p>"
             "<p><b>Built with</b> MediaPipe and its hand model (Apache-2.0), OpenCV (Apache-2.0), Qt through "
             "PySide6 (LGPL-3.0), NumPy (BSD-3-Clause), Pillow (MIT-CMU), sounddevice (MIT), soundfile "
-            "(BSD-3-Clause), PyYAML (MIT) and pyvirtualcam (GPL-2.0). Each keeps its own license; the list with "
+            "(BSD-3-Clause) and PyYAML (MIT). The video goes to the OBS Studio virtual camera you install yourself "
+            "(GPL-2.0-or-later). Each keeps its own license; the list with "
             "links is in the README file.</p>"
             "<p>Google Meet, Zoom and Windows are trademarks of their owners. {name} is not affiliated with or "
             "endorsed by them.</p>"),

@@ -15,7 +15,6 @@ from typing import NamedTuple
 
 import cv2
 import numpy as np
-import pyvirtualcam
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QImage
 
@@ -26,6 +25,7 @@ from jutsu import Vanish
 from orb import EnergyOrb, occlude_by_hand, orb_anchor
 from rules import Jurus, Rules, active_ids, build, hands_center, valid_templates
 from tracking import CONNECTIONS, WRIST, HandTracker, Smoother, palm_center, palm_normal, palm_size, pick_primary
+from virtualcam import ObsVirtualCamera
 
 log = logging.getLogger(__name__)
 RECORD_COUNTDOWN, RECORD_SECONDS = 3.0, 2.0  # recording a gesture: time to strike the pose, then time spent collecting it
@@ -42,16 +42,14 @@ def open_camera(cfg: dict) -> cv2.VideoCapture:
     return cap
 
 
-def open_virtual_camera(cfg: dict, width: int, height: int, fps: int) -> pyvirtualcam.Camera | None:
+def open_virtual_camera(cfg: dict, width: int, height: int, fps: int) -> ObsVirtualCamera | None:
     """The output Meet/Zoom pick as a camera. Missing or busy driver → preview-only, not a crash."""
     if not cfg["enabled"]:
         return None
     try:
-        cam = pyvirtualcam.Camera(width=width, height=height, fps=fps, backend=cfg["backend"],
-                                  fmt=pyvirtualcam.PixelFormat.BGR)
-    except Exception as e:
-        log.warning("Virtual camera unavailable, running preview-only: %s "
-                    "(is OBS Studio's own Start Virtual Camera active? Stop it or close OBS)", e)
+        cam = ObsVirtualCamera(width, height, fps)
+    except Exception as e:  # not installed, in use by OBS itself, or not supported on this system
+        log.warning("Virtual camera unavailable, running preview-only: %s", e)
         return None
     log.info("Virtual camera: sending %dx%d to \"%s\"; select it as the camera in Meet/Zoom", width, height, cam.device)
     return cam

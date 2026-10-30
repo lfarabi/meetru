@@ -2,7 +2,6 @@ mediapipe
 opencv-contrib-python
 numpy
 pyyaml
-pyvirtualcam
 sounddevice
 pytest
 soundfile

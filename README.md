@@ -8,7 +8,7 @@ py -3.12 -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
 curl -L -o models/hand_landmarker.task https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task
 ```
-`requirements.txt` includes PySide6 (the Qt window) and Pillow (images and GIFs). The virtual camera needs OBS Studio installed once (it brings the "OBS Virtual Camera" driver; OBS itself need not run). For sound in meetings see [Use in Meet / Zoom](#use-in-meet--zoom).
+`requirements.txt` includes PySide6 (the Qt window) and Pillow (images and GIFs). The virtual camera needs OBS Studio installed once (it brings the "OBS Virtual Camera" driver; OBS itself need not run). The virtual camera works on Windows for now; on macOS and Linux Meetru runs with the preview only. For sound in meetings see [Use in Meet / Zoom](#use-in-meet--zoom).
 
 ## Start
 Double-click `run.bat`, or run `.venv\Scripts\python main.py`. A webcam can be used by one app at a time: close NVIDIA Broadcast / Meet / Zoom if they hold the camera.
@@ -135,16 +135,15 @@ Libraries Meetru uses (installed with `requirements.txt`):
 | [sounddevice](https://github.com/spatialaudio/python-sounddevice) with [PortAudio](https://www.portaudio.com) | playing sounds and reading the microphone | MIT |
 | [soundfile](https://github.com/bastibe/python-soundfile) with [libsndfile](https://libsndfile.github.io/libsndfile/) | reading MP3, WAV, OGG and FLAC | BSD-3-Clause; libsndfile LGPL-2.1-or-later |
 | [PyYAML](https://pyyaml.org) | the settings files | MIT |
-| [pyvirtualcam](https://github.com/letmaik/pyvirtualcam) (Maik Riechert and contributors) | sending the video to the OBS virtual camera | GPL-2.0 (see the note below) |
 | [pytest](https://pytest.org) | the tests only | MIT |
 
 They bring their own dependencies (matplotlib, absl-py, flatbuffers, certifi and others). The full list with versions, the components bundled inside each package, and what each license asks for is in the [license and IP audit](docs/research/2026-10-30-license-ip-audit.md).
 
-**Note on pyvirtualcam.** It is licensed GPL-2.0 without "or later", which on the Free Software Foundation's reading cannot be combined with GPL-3.0 and Apache-2.0 code in one distributed package. This repository only contains Meetru's own source code, so nothing is combined here; before any installer that bundles the libraries is published, this has to be settled (options are in section 3 of the audit).
+**Virtual camera.** Meetru sends the video to the OBS Virtual Camera with its own code (`virtualcam.py`). The shared-memory format it writes is OBS Studio's (GPL-2.0-or-later, [shared-memory-queue](https://github.com/obsproject/obs-studio/tree/master/plugins/win-dshow)); no code from other virtual-camera libraries is used. It works on Windows with OBS Studio installed; macOS and Linux are not supported yet.
 
 Installed by you, not included in Meetru:
 
-- [OBS Studio](https://obsproject.com) by the OBS Project (GPL-2.0-or-later): provides the "OBS Virtual Camera" device.
+- [OBS Studio](https://obsproject.com) by the OBS Project (GPL-2.0-or-later): provides the "OBS Virtual Camera" device that Meetru sends the video to (see the note above).
 - [VB-CABLE](https://vb-audio.com/Cable/) by VB-Audio Software: donationware (www.vb-cable.com); use inside a company or organisation needs a paid license from VB-Audio.
 - [Python](https://www.python.org) (PSF License).
 

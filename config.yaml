@@ -9,7 +9,7 @@ camera:
 
 virtual_camera:
   enabled: true          # overridden in Settings (Send to the virtual camera)
-  backend: obs           # "OBS Virtual Camera" driver, installed with OBS Studio (OBS itself need not run)
+                         # sends to the "OBS Virtual Camera" device that OBS Studio installs (OBS itself need not run)
 
 tracking:
   model_path: models/hand_landmarker.task

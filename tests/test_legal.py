@@ -67,7 +67,7 @@ def test_about_shows_the_notices_the_gpl_asks_for(qapp, lang, no_warranty):
     i18n.set_language(lang)
     text = legal.AboutDialog().text.toPlainText()
     for needle in (no_warranty, "Meetru", "2026", legal.COPYRIGHT_OWNER, "GNU General Public License", legal.GPL_URL,
-                   "MediaPipe", "pyvirtualcam"):
+                   "MediaPipe", "OBS"):
         assert needle in text, needle
 
 
